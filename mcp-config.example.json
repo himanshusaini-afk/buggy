@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "buggy": {
+      "command": "npx",
+      "args": ["buggy-mcp"],
+      "env": {}
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Buggy Auto-Fix Loop",
+  "description": "After Kiro finishes any coding task, automatically run Buggy analysis on changed files. If bugs are found, investigate them and apply approved fixes (max 3 iterations). This creates a self-healing loop where Kiro fixes its own bugs before the developer sees them.",
+  "version": "1",
+  "when": {
+    "type": "agentStop"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "The agent just finished a coding task. Now perform a self-healing verification loop (max 3 iterations):\n\n1. Identify which .ts files were modified in this session (check git diff or recent file edits).\n2. For each modified file, call buggy_analyze to check for issues.\n3. If issues are found, call buggy_list_functions to identify the affected functions.\n4. For each risky function (division, array access without bounds, unclamped operations), call buggy_investigate with inferred preconditions and postconditions.\n5. If buggy_investigate returns status \"confirmed_and_repaired\" with approved patches, apply the best patch (lowest overfitting score) using str_replace.\n6. After applying a fix, re-run buggy_analyze on that file to verify the fix is clean.\n7. Stop after 3 iterations or when no more bugs are found.\n\nKeep output brief: \"Fixed [function] — [description of bug]. Overfitting score: X%.\" If no bugs found, say nothing."
+  }
+}

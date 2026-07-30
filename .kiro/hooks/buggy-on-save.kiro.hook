@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Buggy Auto-Analyze on Save",
+  "description": "When a TypeScript file is saved, automatically run Buggy's analysis to detect syntax errors, list functions, and flag potential issues. Reports findings inline.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "**/*.ts"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A TypeScript file was just saved. Use the buggy_analyze MCP tool to parse it and check for issues. If syntax errors are found, report them. If the file has functions that look risky (e.g., division, array access without bounds checking, unclamped numeric operations), suggest running buggy_investigate on those functions. Keep the response brief — just flag issues, don't fix them unless asked."
+  }
+}

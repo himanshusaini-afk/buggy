@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Buggy Pre-Task Analysis",
+  "description": "Before starting any task from a spec, Buggy analyzes the related source files to understand the current state and flag existing bugs that might affect the task.",
+  "version": "1",
+  "when": {
+    "type": "preTaskExecution"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A spec task is about to start. If the buggy MCP server is available, use buggy_list_functions to scan the files related to this task. Briefly note any functions that might have edge-case bugs (division by zero, missing bounds checks, unclamped values). This gives context before implementation begins. Keep it to 2-3 lines max."
+  }
+}

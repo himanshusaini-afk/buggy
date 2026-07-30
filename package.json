@@ -1,0 +1,66 @@
+{
+  "name": "buggy",
+  "version": "0.1.0",
+  "description": "Proof-carrying debugger that mathematically proves bugs exist, generates verified repairs, and rejects overfit patches. Available as CLI, MCP server, or programmatic API.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "keywords": [
+    "debugger",
+    "bug-detection",
+    "proof-carrying",
+    "automated-repair",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "static-analysis",
+    "fuzzing",
+    "property-based-testing",
+    "ai-coding",
+    "developer-tools"
+  ],
+  "bin": {
+    "buggy": "dist/cli.js",
+    "buggy-mcp": "dist/mcp-server.js"
+  },
+  "files": [
+    "dist/",
+    "templates/",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "start": "node dist/cli.js",
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:properties": "vitest run tests/properties",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.12.1",
+    "better-sqlite3": "11.7.0",
+    "tree-sitter": "0.22.4",
+    "tree-sitter-typescript": "0.23.2",
+    "yaml": "2.7.1",
+    "zod": "3.24.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "22.15.17",
+    "fast-check": "3.23.2",
+    "typescript": "5.8.3",
+    "vitest": "3.1.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

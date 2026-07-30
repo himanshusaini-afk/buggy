@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Buggy Deep Scan",
+  "description": "When the user triggers a deep scan, Buggy iterates through all TypeScript files in the project, analyzes each one, investigates risky functions, and generates a comprehensive bug report with proof certificates.",
+  "version": "1",
+  "when": {
+    "type": "userTriggered"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "The user triggered a deep scan. Perform a comprehensive project-wide bug analysis:\n\n1. Find all .ts files in the src/ directory (exclude node_modules, dist, tests).\n2. For each file, call buggy_list_functions to get all exported functions.\n3. For each function, infer specifications from the code context:\n   - Return type → postcondition about result type\n   - Parameters with numeric types → preconditions about valid ranges\n   - Division operations → postcondition \"!isNaN(result) && isFinite(result)\"\n   - Array operations → preconditions about array bounds\n4. Call buggy_investigate on each function with inferred specs.\n5. Collect all results into a summary report.\n6. Write the report to .debugger/deep-scan-report.md with:\n   - Date and time of scan\n   - Total functions scanned\n   - Bugs proven (with proof certificates)\n   - Approved fixes available\n   - Risk heatmap (which files have the most issues)\n\nPresent the summary to the user when complete."
+  }
+}

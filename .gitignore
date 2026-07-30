@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Package tarballs
+*.tgz
+
+# Buggy working directory (generated data, graph database)
+.debugger/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE files
+.idea/
+*.swp
+*.swo
+*~
+
+# Test coverage
+coverage/
+
+# Vitest cache
+.vitest/
+
+# TypeScript incremental compilation
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Kiro local state (per-developer, not shared)
+.kiro/cache/
+.kiro/state/
+.kiro/.meta.json
+
+# SQLite temporary files
+*.db-journal
+*.db-wal
+*.db-shm

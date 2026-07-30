@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Buggy Spec Evolution",
+  "description": "After a spec task completes, Buggy verifies the new implementation by inferring updated specifications from the modified code and running investigations to ensure correctness.",
+  "version": "1",
+  "when": {
+    "type": "postTaskExecution"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A spec task just completed. Perform specification evolution:\n\n1. Identify which functions were added or modified during this task.\n2. For each modified function:\n   a. Read the function implementation and its JSDoc/comments.\n   b. Infer updated preconditions and postconditions from the new code.\n   c. Call buggy_investigate with the new specifications to verify correctness.\n3. If bugs are found in the NEW implementation, report them immediately.\n4. Keep responses brief — only report issues, not successes."
+  }
+}

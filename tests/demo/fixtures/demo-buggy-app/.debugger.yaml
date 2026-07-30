@@ -1,0 +1,17 @@
+language: typescript
+parser:
+  command: tree-sitter-typescript
+lsp:
+  command: typescript-language-server
+sandbox:
+  runtime: node
+  memory_limit_mb: 512
+  timeout_seconds: 60
+oracles:
+  timeout_threshold_seconds: 5
+  crash_detection: true
+  overflow_detection: true
+  determinism_check_count: 3
+probe:
+  search_budget: 50
+  max_refinement_iterations: 5
