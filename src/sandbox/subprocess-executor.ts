@@ -308,8 +308,9 @@ run().then(() => process.exit(0)).catch((e) => {
     // 10. Remove 'as Type' casts
     result = result.replace(/\s+as\s+\w+[\[\]<>]*/g, '');
 
-    // 11. Remove non-null assertions (!)
-    result = result.replace(/(\w)!/g, '$1');
+    // 11. Remove non-null assertions (!) — but NOT the '!' in '!=' / '!==',
+    //     which would otherwise corrupt inequality checks like `x!==y` → `x==y`.
+    result = result.replace(/(\w)!(?!=)/g, '$1');
 
     // 12. Remove 'readonly' keyword
     result = result.replace(/\breadonly\s+/g, '');

@@ -10,6 +10,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { rmSync } from 'node:fs';
 import { initializeDatabase } from '../../src/database/graph-db.js';
 import { GraphQueries } from '../../src/database/graph-queries.js';
 import { GraphWriter, ReferentialIntegrityError } from '../../src/database/graph-writer.js';
@@ -64,9 +68,26 @@ describe('SQLite Graph Database Integration', () => {
   });
 
   describe('WAL Mode Concurrency', () => {
-    it('should initialize database in WAL mode', () => {
-      const journalMode = db.pragma('journal_mode', { simple: true });
-      expect(journalMode).toBe('wal');
+    it('should initialize on-disk databases in WAL mode', () => {
+      // WAL is an on-disk journal mode: it relies on companion -wal/-shm files, so
+      // SQLite always reports 'memory' for ':memory:' databases regardless of the
+      // requested pragma. Verify WAL is genuinely enabled for a file-backed database,
+      // which is the production configuration.
+      const tmpFile = join(tmpdir(), `buggy-wal-test-${randomUUID()}.db`);
+      const fileDb = initializeDatabase(tmpFile);
+      try {
+        const journalMode = fileDb.pragma('journal_mode', { simple: true });
+        expect(journalMode).toBe('wal');
+      } finally {
+        fileDb.close();
+        for (const suffix of ['', '-wal', '-shm']) {
+          try {
+            rmSync(tmpFile + suffix, { force: true });
+          } catch {
+            /* best-effort cleanup */
+          }
+        }
+      }
     });
 
     it('should support concurrent reads while a write is pending', async () => {

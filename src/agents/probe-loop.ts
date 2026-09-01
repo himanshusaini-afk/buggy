@@ -46,6 +46,8 @@ export class ProbeLoop {
   private config: ProbeConfig;
   private generator: GeneratorAgent;
   private validator: ValidatorAgent;
+  /** Monotonic sequence guaranteeing unique iteration row IDs regardless of clock resolution. */
+  private iterationSeq = 0;
 
   constructor(
     db: Database.Database,
@@ -150,7 +152,10 @@ export class ProbeLoop {
     counterImplementation: string | null,
     status: 'refined' | 'verified' | 'inconclusive'
   ): void {
-    const id = `probe_${propertyId}_iter_${iterationNumber}_${Date.now()}`;
+    // Include a monotonic sequence so IDs stay unique even when multiple rows
+    // are recorded for the same iteration number within the same millisecond
+    // (e.g. the final 'inconclusive' row reuses max_refinement_iterations).
+    const id = `probe_${propertyId}_iter_${iterationNumber}_${Date.now()}_${++this.iterationSeq}`;
 
     const stmt = this.db.prepare(`
       INSERT INTO probe_iterations (id, property_id, iteration_number, candidate_property, counter_implementation, status)

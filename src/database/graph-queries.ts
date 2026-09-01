@@ -107,8 +107,16 @@ export class GraphQueries {
   }
 
   /**
-   * Finds the shortest path between two nodes using a recursive CTE.
-   * Returns the ordered list of nodes on the path, or an empty array if no path exists.
+   * Finds the shortest path (fewest edges) between two nodes using breadth-first
+   * search over the edge set.
+   *
+   * BFS visits each reachable node at most once, so it runs in O(V + E), is safe
+   * on cyclic graphs, and returns a genuine shortest path. This replaces an earlier
+   * recursive-CTE implementation that enumerated every simple path (exponential on
+   * branching graphs) and used substring matching for cycle detection, which produced
+   * false positives on IDs that shared a prefix (e.g. "chain-1" vs "chain-10").
+   *
+   * @returns The ordered list of nodes on a shortest path, or an empty array if no path exists.
    */
   findPath(sourceId: string, targetId: string): NodeRecord[] {
     if (sourceId === targetId) {
@@ -116,32 +124,49 @@ export class GraphQueries {
       return node ? [node] : [];
     }
 
-    // Use recursive CTE to find a path from source to target
-    const pathStmt = this.db.prepare(`
-      WITH RECURSIVE path(node_id, depth, visited) AS (
-        SELECT :sourceId, 0, :sourceId
-        UNION ALL
-        SELECT e.target_id, p.depth + 1, p.visited || ',' || e.target_id
-        FROM path p
-        JOIN edges e ON e.source_id = p.node_id
-        WHERE p.visited NOT LIKE '%' || e.target_id || '%'
-          AND p.depth < 50
-      )
-      SELECT visited FROM path WHERE node_id = :targetId ORDER BY depth LIMIT 1
-    `);
+    const neighborsStmt = this.db.prepare(
+      'SELECT DISTINCT target_id FROM edges WHERE source_id = ?'
+    );
 
-    const result = pathStmt.get({ sourceId, targetId }) as { visited: string } | undefined;
+    // BFS from the source, recording each node's predecessor for path reconstruction.
+    // The `parent` map doubles as the visited set (a key exists once discovered).
+    const parent = new Map<string, string | null>();
+    parent.set(sourceId, null);
+    const queue: string[] = [sourceId];
+    let found = false;
 
-    if (!result) {
+    while (queue.length > 0) {
+      const current = queue.shift() as string;
+      const rows = neighborsStmt.all(current) as Array<{ target_id: string }>;
+
+      for (const { target_id } of rows) {
+        if (parent.has(target_id)) continue; // already discovered → shortest distance already set
+        parent.set(target_id, current);
+        if (target_id === targetId) {
+          found = true;
+          break;
+        }
+        queue.push(target_id);
+      }
+
+      if (found) break;
+    }
+
+    if (!found) {
       return [];
     }
 
-    // Parse the visited path (comma-separated node IDs)
-    const nodeIds = result.visited.split(',');
+    // Reconstruct the path from target back to source, then reverse.
+    const idPath: string[] = [];
+    let cursor: string | null = targetId;
+    while (cursor !== null) {
+      idPath.unshift(cursor);
+      cursor = parent.get(cursor) ?? null;
+    }
 
-    // Fetch all nodes in the path, preserving order
+    // Fetch all nodes in the path, preserving order.
     const nodes: NodeRecord[] = [];
-    for (const id of nodeIds) {
+    for (const id of idPath) {
       const node = this.lookupNode(id);
       if (node) {
         nodes.push(node);

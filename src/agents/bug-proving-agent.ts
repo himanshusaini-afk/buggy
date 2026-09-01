@@ -322,52 +322,75 @@ export class BugProvingAgent {
     let braceCount = 0;
     let foundFirstBrace = false;
     let endIdx = startIdx;
-    let insideReturnType = false;
+    let inReturnType = false;
     let parenCount = 0;
     let passedParamList = false;
+    // Last non-whitespace character seen. Used to disambiguate an object *type*
+    // literal in a return annotation (e.g. `): { x: number } {`) from the body brace.
+    let lastMeaningful = '';
+
+    // A '{' following one of these characters (in return-type position) starts an
+    // object type literal rather than the function body.
+    const typePositionChars = new Set([':', '|', '&', ',', '<', '(', '=']);
+
+    // Skip a balanced { ... } block starting at index `open`. Returns the index of
+    // the matching '}'.
+    const skipBalancedBraces = (open: number): number => {
+      let depth = 1;
+      let j = open + 1;
+      while (j < content.length && depth > 0) {
+        if (content[j] === '{') depth++;
+        else if (content[j] === '}') depth--;
+        j++;
+      }
+      return j - 1;
+    };
 
     for (let i = startIdx; i < content.length; i++) {
       const char = content[i];
 
-      // Track parentheses to know when we've passed the parameter list
       if (char === '(') {
         parenCount++;
+        lastMeaningful = char;
       } else if (char === ')') {
         parenCount--;
+        lastMeaningful = char;
         if (parenCount === 0 && !passedParamList) {
           passedParamList = true;
-          // After closing paren, check if there's a return type annotation
-          // Look ahead for `: ` which indicates a return type before the function body
-          const afterParen = content.slice(i + 1, i + 50).trimStart();
+          // A ':' immediately after the parameter list indicates a return type annotation.
+          const afterParen = content.slice(i + 1, i + 200).trimStart();
           if (afterParen.startsWith(':')) {
-            insideReturnType = true;
+            inReturnType = true;
           }
         }
       } else if (char === '{') {
-        if (insideReturnType) {
-          // This is a brace in the return type annotation (e.g., ): { index: number } {)
-          // Find matching close brace and skip
-          let returnBraceCount = 1;
-          i++;
-          while (i < content.length && returnBraceCount > 0) {
-            if (content[i] === '{') returnBraceCount++;
-            else if (content[i] === '}') returnBraceCount--;
-            i++;
-          }
-          i--; // Back up one since the for loop will increment
+        if (parenCount > 0) {
+          // Inside the parameter list: a destructuring pattern or object default value.
+          // Skip it wholesale so it is never mistaken for the function body.
+          i = skipBalancedBraces(i);
+          lastMeaningful = '}';
           continue;
         }
+        if (!foundFirstBrace && inReturnType && typePositionChars.has(lastMeaningful)) {
+          // Object type literal within the return annotation — skip it and stay in the type.
+          i = skipBalancedBraces(i);
+          lastMeaningful = '}';
+          continue;
+        }
+        // This '{' opens the function body.
         braceCount++;
         foundFirstBrace = true;
-        if (braceCount === 1) {
-          insideReturnType = false; // We've entered the actual function body
-        }
+        inReturnType = false;
+        lastMeaningful = char;
       } else if (char === '}') {
         braceCount--;
+        lastMeaningful = char;
         if (foundFirstBrace && braceCount === 0) {
           endIdx = i + 1;
           break;
         }
+      } else if (!/\s/.test(char)) {
+        lastMeaningful = char;
       }
     }
 
