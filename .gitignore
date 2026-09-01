@@ -43,6 +43,8 @@ npm-debug.log*
 .kiro/cache/
 .kiro/state/
 .kiro/.meta.json
+# Local MCP server config — contains machine-specific paths (use mcp-config.example.json as the template)
+.kiro/settings/
 
 # SQLite temporary files
 *.db-journal

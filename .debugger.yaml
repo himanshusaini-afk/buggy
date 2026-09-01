@@ -1,0 +1,18 @@
+language: typescript
+parser:
+  command: tree-sitter
+lsp:
+  command: typescript-language-server --stdio
+sandbox:
+  runtime: firecracker
+  memory_limit_mb: 512
+  timeout_seconds: 30
+  egress_policy: deny
+oracles:
+  timeout_threshold_seconds: 5
+  crash_detection: true
+  overflow_detection: true
+  determinism_check_count: 3
+probe:
+  search_budget: 100
+  max_refinement_iterations: 5

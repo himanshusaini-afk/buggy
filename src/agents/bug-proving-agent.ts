@@ -8,11 +8,13 @@
  * - DiffTestGen: differential test analysis for behavioral difference detection
  * - SAFuzz: biased fuzzing guided by defect-correlated regions
  * - ProofVerifier: mathematical proof-of-failure verification
+ * - RealFuzzer: execution-based fuzzing with postcondition checking
  *
  * Requirements: 4.1–11.6
  */
 
 import type Database from 'better-sqlite3';
+import { readFileSync } from 'node:fs';
 import {
   DiffTestGen,
   type Implementation,
@@ -20,9 +22,26 @@ import {
   type DiffTestGenConfig,
   type SpecificationAssertion,
 } from './difftestgen.js';
+import { RealFuzzer, type FuzzTarget, type FuzzConfig, type FuzzReport } from './real-fuzzer.js';
+import { SubprocessExecutor } from '../sandbox/subprocess-executor.js';
 import type { SourceLocation } from '../types/graph.js';
+import type { InvestigationTarget } from '../types/orchestrator.js';
+import type { ProofOfFailureCertificate } from '../types/proof.js';
 
 export type { Implementation, DiffTestResult, DiffTestGenConfig, SpecificationAssertion };
+
+/**
+ * Result from Bug_Proving_Agent investigation.
+ */
+export interface BugProvingResult {
+  certified: boolean;
+  proof?: ProofOfFailureCertificate;
+  intermediate: {
+    fuzz_mutations?: number;
+    probe_iterations?: number;
+    [key: string]: unknown;
+  };
+}
 
 /**
  * Configuration for the Bug_Proving_Agent.
@@ -30,6 +49,8 @@ export type { Implementation, DiffTestResult, DiffTestGenConfig, SpecificationAs
 export interface BugProvingAgentConfig {
   /** Configuration for differential test generation. */
   diffTestGen?: Partial<DiffTestGenConfig>;
+  /** Configuration for real fuzzing. */
+  fuzz?: FuzzConfig;
 }
 
 /**
@@ -37,6 +58,7 @@ export interface BugProvingAgentConfig {
  *
  * Provides a unified interface for:
  * - Differential test analysis (DiffTestGen)
+ * - Real execution-based fuzzing (RealFuzzer)
  * - And other proving capabilities (TrajSpec, SpecTune, PROBE, SAFuzz, ProofVerifier)
  */
 export class BugProvingAgent {
@@ -48,6 +70,316 @@ export class BugProvingAgent {
     this.db = db;
     this.config = config ?? {};
     this.diffTestGen = new DiffTestGen(this.config.diffTestGen);
+  }
+
+  /**
+   * Investigate a function target for bugs using real execution-based fuzzing.
+   *
+   * Pipeline:
+   * 1. Extract the function source code from the file
+   * 2. Build a FuzzTarget with the specification
+   * 3. Run the real fuzzer (edge cases + random inputs)
+   * 4. If a violation is found, verify the proof:
+   *    - Admissibility: re-check preconditions on the triggering input
+   *    - Soundness: confirm the output violates the postcondition
+   *    - Uniqueness: re-execute 3 times, confirm same failure
+   * 5. Return certified proof or unconfirmed
+   */
+  async investigate(target: InvestigationTarget): Promise<BugProvingResult> {
+    // Step 1: Extract function source code
+    const sourceCode = this.extractFunctionSource(target.file_path, target.function_id);
+    if (!sourceCode) {
+      return { certified: false, intermediate: {} };
+    }
+
+    // Step 2: Build FuzzTarget
+    const fuzzTarget: FuzzTarget = {
+      sourceCode,
+      functionName: target.function_id,
+      postconditions: target.specification.postconditions,
+      preconditions: target.specification.preconditions,
+      parameterTypes: target.specification.parameters.map((p) => p.type),
+    };
+
+    // Step 3: Run real fuzzer
+    const fuzzer = new RealFuzzer(this.config.fuzz);
+    const report = await fuzzer.fuzz(fuzzTarget);
+
+    const intermediate = {
+      fuzz_mutations: report.totalAttempts,
+      violations_found: report.violations.length,
+      total_time_ms: report.totalTime_ms,
+    };
+
+    // Step 4: If no violation, return unconfirmed
+    if (report.status === 'no_violation' || report.violations.length === 0) {
+      return { certified: false, intermediate };
+    }
+
+    // Step 5: Verify the proof
+    const violation = report.violations[0];
+    const proof = await this.verifyAndCertify(fuzzTarget, violation);
+
+    if (proof) {
+      return { certified: true, proof, intermediate };
+    }
+
+    return { certified: false, intermediate };
+  }
+
+  /**
+   * Verify a fuzzing violation and produce a certified proof.
+   *
+   * Three checks:
+   * - Admissibility: input satisfies all preconditions
+   * - Soundness: output genuinely violates the postcondition
+   * - Uniqueness: same failure reproduces consistently
+   */
+  private async verifyAndCertify(
+    target: FuzzTarget,
+    violation: { input: unknown; output: unknown; violatedPostcondition: string; oracleType: string },
+  ): Promise<ProofOfFailureCertificate | null> {
+    const now = new Date().toISOString();
+
+    // Admissibility: check that the triggering input satisfies all preconditions
+    const admissible = this.checkAdmissibility(target.preconditions, violation.input);
+    if (!admissible) return null;
+
+    // Soundness: confirm the postcondition is actually violated
+    const executor = new SubprocessExecutor({ timeout: 3000 });
+    const rerunResult = await executor.execute({
+      functionCode: target.sourceCode,
+      functionName: target.functionName,
+      input: violation.input,
+      timeout: 3000,
+    });
+
+    let soundnessConfirmed = false;
+    if (violation.oracleType === 'crash') {
+      soundnessConfirmed = rerunResult.crashed;
+    } else if (violation.oracleType === 'timeout') {
+      soundnessConfirmed = rerunResult.timedOut;
+    } else if (rerunResult.success) {
+      // Re-check postcondition
+      soundnessConfirmed = this.outputViolatesPostcondition(
+        violation.violatedPostcondition,
+        rerunResult.output,
+        violation.input,
+      );
+    }
+
+    if (!soundnessConfirmed) {
+      executor.cleanup();
+      return null;
+    }
+
+    // Uniqueness: run 3 more times, confirm same failure
+    const uniquenessResults = await executor.executeMultiple(
+      {
+        functionCode: target.sourceCode,
+        functionName: target.functionName,
+        input: violation.input,
+        timeout: 3000,
+      },
+      3,
+    );
+    executor.cleanup();
+
+    let uniquenessCount = 0;
+    for (const result of uniquenessResults) {
+      if (violation.oracleType === 'crash' && result.crashed) {
+        uniquenessCount++;
+      } else if (violation.oracleType === 'timeout' && result.timedOut) {
+        uniquenessCount++;
+      } else if (result.success) {
+        const violates = this.outputViolatesPostcondition(
+          violation.violatedPostcondition,
+          result.output,
+          violation.input,
+        );
+        if (violates) uniquenessCount++;
+      }
+    }
+
+    // Require at least 2 out of 3 reproductions for uniqueness
+    if (uniquenessCount < 2) return null;
+
+    const certifiedAt = new Date().toISOString();
+
+    return {
+      test_input: violation.input,
+      observed_output: violation.output,
+      violated_postcondition: violation.violatedPostcondition,
+      admissibility_verified_at: now,
+      soundness_verified_at: certifiedAt,
+      uniqueness_verified_at: certifiedAt,
+    };
+  }
+
+  /**
+   * Check if a given input satisfies all preconditions.
+   */
+  private checkAdmissibility(preconditions: string[], input: unknown): boolean {
+    if (preconditions.length === 0) return true;
+
+    for (const precondition of preconditions) {
+      try {
+        const checkFn = new Function('input', `return (${precondition});`);
+        if (!checkFn(input)) return false;
+      } catch {
+        // Cannot evaluate precondition — assume admissible
+        continue;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Check if a function output violates a postcondition.
+   */
+  private outputViolatesPostcondition(
+    postcondition: string,
+    output: unknown,
+    input: unknown,
+  ): boolean {
+    try {
+      const checkFn = new Function('result', 'input', `return (${postcondition});`);
+      return !checkFn(output, input);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Extract function source code from a file.
+   *
+   * Looks for common patterns:
+   * - `function name(...)` declarations
+   * - `const/let/var name = function(...)` or arrow functions
+   * - `export function name(...)`
+   * - Class methods via `name(...)` inside a class body
+   *
+   * Falls back to reading the entire file content if the function
+   * cannot be isolated (the executor wraps it appropriately).
+   */
+  private extractFunctionSource(filePath: string, functionId: string): string | null {
+    try {
+      const content = readFileSync(filePath, 'utf-8');
+      
+      // Try to find and extract the specific function
+      const extracted = this.findFunctionInSource(content, functionId);
+      if (extracted) return extracted;
+
+      // Fallback: return the entire file content — the executor
+      // will try to resolve the function name from it
+      return content;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Find and extract a function's source from file content using regex patterns.
+   * Handles: function declarations, arrow functions, exported functions.
+   */
+  private findFunctionInSource(content: string, functionId: string): string | null {
+    const escapedName = functionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // Pattern 1: function declaration (with or without export)
+    const funcDeclPattern = new RegExp(
+      `(?:export\\s+)?(?:async\\s+)?function\\s+${escapedName}\\s*\\(`,
+    );
+    // Pattern 2: const/let/var arrow or function expression
+    const varDeclPattern = new RegExp(
+      `(?:export\\s+)?(?:const|let|var)\\s+${escapedName}\\s*=\\s*(?:async\\s+)?(?:function)?\\s*[\\(]`,
+    );
+    // Pattern 3: const/let/var arrow function
+    const arrowPattern = new RegExp(
+      `(?:export\\s+)?(?:const|let|var)\\s+${escapedName}\\s*=\\s*(?:async\\s+)?\\(`,
+    );
+
+    const patterns = [funcDeclPattern, varDeclPattern, arrowPattern];
+
+    for (const pattern of patterns) {
+      const match = pattern.exec(content);
+      if (match) {
+        // Find the balanced braces starting from the match
+        const startIdx = match.index;
+        const extracted = this.extractBalancedBlock(content, startIdx);
+        if (extracted) return extracted;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Extract a balanced block of code starting from the given index.
+   * Tracks braces `{}` to find the complete function body.
+   * Skips braces that appear in return type annotations (between `)` and function body `{`).
+   */
+  private extractBalancedBlock(content: string, startIdx: number): string | null {
+    let braceCount = 0;
+    let foundFirstBrace = false;
+    let endIdx = startIdx;
+    let insideReturnType = false;
+    let parenCount = 0;
+    let passedParamList = false;
+
+    for (let i = startIdx; i < content.length; i++) {
+      const char = content[i];
+
+      // Track parentheses to know when we've passed the parameter list
+      if (char === '(') {
+        parenCount++;
+      } else if (char === ')') {
+        parenCount--;
+        if (parenCount === 0 && !passedParamList) {
+          passedParamList = true;
+          // After closing paren, check if there's a return type annotation
+          // Look ahead for `: ` which indicates a return type before the function body
+          const afterParen = content.slice(i + 1, i + 50).trimStart();
+          if (afterParen.startsWith(':')) {
+            insideReturnType = true;
+          }
+        }
+      } else if (char === '{') {
+        if (insideReturnType) {
+          // This is a brace in the return type annotation (e.g., ): { index: number } {)
+          // Find matching close brace and skip
+          let returnBraceCount = 1;
+          i++;
+          while (i < content.length && returnBraceCount > 0) {
+            if (content[i] === '{') returnBraceCount++;
+            else if (content[i] === '}') returnBraceCount--;
+            i++;
+          }
+          i--; // Back up one since the for loop will increment
+          continue;
+        }
+        braceCount++;
+        foundFirstBrace = true;
+        if (braceCount === 1) {
+          insideReturnType = false; // We've entered the actual function body
+        }
+      } else if (char === '}') {
+        braceCount--;
+        if (foundFirstBrace && braceCount === 0) {
+          endIdx = i + 1;
+          break;
+        }
+      }
+    }
+
+    if (!foundFirstBrace || braceCount !== 0) return null;
+
+    // Also handle arrow functions that end with a semicolon after the block
+    let result = content.slice(startIdx, endIdx);
+    if (endIdx < content.length && content[endIdx] === ';') {
+      result = content.slice(startIdx, endIdx + 1);
+    }
+
+    return result;
   }
 
   /**

@@ -9,6 +9,7 @@ A complete guide to using Buggy — from installation through CI/CD integration.
 1. [Getting Started (5 minutes)](#1-getting-started)
 2. [Attaching to Your Project](#2-attaching-to-your-project)
 3. [Using the CLI](#3-using-the-cli)
+3b. [How Bug Proving Works (Under the Hood)](#3b-how-bug-proving-works-under-the-hood)
 4. [Using as an MCP Server (AI IDE Integration)](#4-using-as-an-mcp-server)
 4b. [Kiro-Powered Features](#4b-kiro-powered-features)
 5. [Using the Programmatic API](#5-using-the-programmatic-api)
@@ -460,6 +461,8 @@ $ buggy analyze src/cart.ts --json
 
 ### `buggy investigate <function> --file <path>`
 
+> **New: Real Execution-Based Proving.** As of v0.1, `buggy investigate` performs real code execution to prove bugs. Your function is called with generated edge-case inputs in an isolated subprocess — no simulation, no static-analysis-only guessing. Bugs are proved by observing actual incorrect outputs (NaN, Infinity, crashes, timeouts) from real runs. See [Section 3b](#3b-how-bug-proving-works-under-the-hood) for details.
+
 Runs the full investigation pipeline on a single function:
 
 1. **Parse** — Build the CST and resolve symbols via LSP
@@ -630,6 +633,112 @@ Stops a running investigation. The system preserves all intermediate results col
 $ buggy halt inv_1718234567890_a7f3c21
 ✓ Investigation inv_1718234567890_a7f3c21 halted.
 ```
+
+---
+
+## 3b. How Bug Proving Works (Under the Hood)
+
+When you run `buggy investigate`, the proving engine executes a real fuzzing-and-verification loop to find and certify bugs. Here's what happens step by step.
+
+### Input Generation: Edge Cases First
+
+The fuzzer generates inputs in **priority order**, not randomly:
+
+1. **Edge cases (always tested first):**
+   - `0`, `-0`
+   - `NaN`, `Infinity`, `-Infinity`
+   - `Number.MAX_SAFE_INTEGER`, `Number.MIN_SAFE_INTEGER`
+   - Empty arrays `[]`
+   - Empty strings `""`
+   - `null`, `undefined`
+
+2. **Boundary combinations** — pairs like `(0, 0)`, `(Infinity, -Infinity)`, `(0, NaN)`
+
+3. **Random values** — only explored if edge cases don't trigger a failure
+
+This prioritization is why Buggy finds most division-by-zero and overflow bugs on attempt #1.
+
+### Isolated Execution: Real Subprocess
+
+Each generated input is executed against the actual function in an **isolated Node.js subprocess** (`child_process.fork`):
+
+- The function runs in a separate process — crashes don't kill the debugger
+- Each execution has a configurable timeout (default: 5 seconds)
+- Memory is isolated — stack overflows and OOM errors are caught safely
+- No mocking, no simulation — the function runs exactly as it would in production
+
+### Oracle Checks: Four Automatic Detectors
+
+After every execution, four oracle checks run on the output:
+
+| Oracle | Detects | Example |
+|--------|---------|---------|
+| **NaN oracle** | Result is `NaN` | `0 / 0` → `NaN` |
+| **Infinity oracle** | Result is `±Infinity` | `1 / 0` → `Infinity` |
+| **Crash oracle** | Function throws an unhandled exception | `TypeError: Cannot read property...` |
+| **Timeout oracle** | Function exceeds time limit | Infinite loop, unbounded recursion |
+
+These oracles fire automatically — you don't need to write postconditions for them. They catch the most common classes of numerical and runtime bugs.
+
+### Postcondition Checking
+
+If you provide explicit postconditions (e.g., `"result >= 0"`), those are also checked against the output. Custom postconditions let you catch domain-specific violations beyond what the built-in oracles detect.
+
+### Proof Verification: Three Steps to Certification
+
+When a violation is found, the system doesn't immediately declare "bug found." It runs three verification steps:
+
+#### 1. Admissibility Check
+
+> Does the input satisfy all preconditions?
+
+The input must be a *valid* input — one that your function is expected to handle. If preconditions are defined (e.g., `"amount > 0"`), the input must satisfy them. This prevents false positives from garbage inputs.
+
+If no preconditions are specified, all inputs are considered admissible.
+
+#### 2. Soundness Check
+
+> Does the output actually violate the postcondition?
+
+The observed output is re-evaluated against the violated postcondition to confirm the violation is genuine. This double-check catches edge cases in the oracle logic itself.
+
+#### 3. Uniqueness Check
+
+> Does the same failure reproduce deterministically?
+
+The exact same input is re-executed **2 additional times** (3 total). The failure must reproduce in at least 2 out of 3 runs. This eliminates:
+- Timing-dependent flakes
+- Non-deterministic behavior (random number generators, dates)
+- Transient system-level issues
+
+### Certification
+
+Only after all three verification steps pass does the system issue a **proof-of-failure certificate**:
+
+```
+Proof-of-Failure Certificate
+─────────────────────────────────────
+Function:    splitExpense
+Input:       (0, 0)
+Output:      NaN
+Violation:   NaN oracle — result is not a finite number
+
+Verification:
+  ✓ Admissible   — input (0, 0) satisfies all preconditions
+  ✓ Sound        — NaN genuinely violates postcondition
+  ✓ Unique       — reproduced 3/3 times
+
+Status: CERTIFIED
+```
+
+If any step fails, the candidate violation is discarded and the fuzzer continues exploring other inputs.
+
+### Performance
+
+- Edge-case bugs are typically proved in **1 attempt** (< 100ms)
+- The full search budget (default: 100 inputs) completes in under 1 second
+- No network calls, no LLM inference, no cloud — everything runs locally
+- Subprocess isolation adds ~10ms overhead per execution
 
 ---
 

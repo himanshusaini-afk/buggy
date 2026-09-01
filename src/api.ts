@@ -31,6 +31,7 @@ import { loadConfig, ConfigError } from './config/config-loader.js';
 import { initializeDatabase } from './database/graph-db.js';
 import { GraphQueries } from './database/graph-queries.js';
 import { ParserAgent } from './agents/parser-agent.js';
+import { BugProvingAgent } from './agents/bug-proving-agent.js';
 import { AgentOrchestrator } from './orchestrator/orchestrator.js';
 import type { OrchestratorDeps } from './orchestrator/orchestrator.js';
 import type { DebuggerConfig } from './types/config.js';
@@ -351,9 +352,10 @@ export class ProofDebugger {
         },
       },
       bugProvingAgent: {
-        investigate: async (_target) => {
-          // Stub: in production, this connects to the full Bug_Proving_Agent
-          return { certified: false, intermediate: {} };
+        investigate: async (target) => {
+          // Use the real Bug_Proving_Agent with execution-based fuzzing
+          const agent = new BugProvingAgent(this.db!);
+          return agent.investigate(target);
         },
       },
       repairAgent: {
