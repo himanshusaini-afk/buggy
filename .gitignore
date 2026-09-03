@@ -50,3 +50,7 @@ npm-debug.log*
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Generated demo report (rewritten on every `npm test` run with fresh
+# timestamps/timings — tracking it just produces churn in every diff)
+tests/demo/DATASCIENCE-REPORT.md
