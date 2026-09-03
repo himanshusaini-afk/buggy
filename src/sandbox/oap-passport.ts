@@ -41,8 +41,16 @@ export function validateOperation(
 ): PassportValidationResult {
   const now = new Date();
   const expiresAt = new Date(passport.expires_at);
+  // A malformed expires_at parses to an Invalid Date whose getTime() is NaN.
+  // Every relational comparison with NaN is false, so `now > expiresAt` would be
+  // false and a garbage expiry would be treated as "not expired" — failing OPEN.
+  // Reject instead (fail closed).
+  const hasValidExpiry = !Number.isNaN(expiresAt.getTime());
 
-  if (now > expiresAt) {
+  if (!hasValidExpiry || now > expiresAt) {
+    const reason = hasValidExpiry
+      ? `has expired (expired at ${passport.expires_at})`
+      : `has an invalid expiry timestamp ('${passport.expires_at}')`;
     return {
       allowed: false,
       rejection: {
@@ -50,7 +58,7 @@ export function validateOperation(
         agent_id: passport.agent_id,
         operation,
         permitted_operations: passport.permitted_operations,
-        message: `OAP Passport for agent '${passport.agent_id}' has expired (expired at ${passport.expires_at}). Operation '${operation}' rejected.`,
+        message: `OAP Passport for agent '${passport.agent_id}' ${reason}. Operation '${operation}' rejected.`,
       },
     };
   }

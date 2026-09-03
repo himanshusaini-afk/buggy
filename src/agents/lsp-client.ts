@@ -44,7 +44,10 @@ export class LspClient {
   private process: ChildProcess | null = null;
   private requestId = 0;
   private responseEmitter = new EventEmitter();
-  private buffer = '';
+  // Raw byte buffer. LSP Content-Length is a UTF-8 byte count, so framing must be
+  // done on bytes, not on a UTF-16 JS string (which desynchronizes for any
+  // non-ASCII payload).
+  private buffer: Buffer = Buffer.alloc(0);
   private contentLength: number | null = null;
   private initialized = false;
 
@@ -65,7 +68,7 @@ export class LspClient {
     });
 
     this.process.stdout?.on('data', (chunk: Buffer) => {
-      this.handleData(chunk.toString('utf-8'));
+      this.handleData(chunk);
     });
 
     this.process.on('error', (err) => {
@@ -290,36 +293,40 @@ export class LspClient {
    * Handle incoming data from the LSP server's stdout.
    * Parses the LSP base protocol (Content-Length header + JSON body).
    */
-  private handleData(data: string): void {
-    this.buffer += data;
+  private handleData(chunk: Buffer): void {
+    // Accumulate raw bytes. All framing below is byte-based because Content-Length
+    // counts UTF-8 bytes; slicing a UTF-16 string by that count would consume the
+    // wrong number of characters for non-ASCII bodies and permanently desync the
+    // stream.
+    this.buffer = this.buffer.length === 0 ? chunk : Buffer.concat([this.buffer, chunk]);
 
     while (true) {
       if (this.contentLength === null) {
-        // Look for header separator
+        // Look for header separator (ASCII, so a byte search is exact)
         const headerEnd = this.buffer.indexOf('\r\n\r\n');
         if (headerEnd === -1) {
           return; // Need more data
         }
 
-        const header = this.buffer.slice(0, headerEnd);
+        const header = this.buffer.subarray(0, headerEnd).toString('utf-8');
         const match = header.match(/Content-Length:\s*(\d+)/i);
         if (!match) {
           // Skip malformed header
-          this.buffer = this.buffer.slice(headerEnd + 4);
+          this.buffer = this.buffer.subarray(headerEnd + 4);
           continue;
         }
 
         this.contentLength = parseInt(match[1], 10);
-        this.buffer = this.buffer.slice(headerEnd + 4);
+        this.buffer = this.buffer.subarray(headerEnd + 4);
       }
 
-      // Check if we have enough data for the body
+      // Check if we have enough bytes for the body
       if (this.buffer.length < this.contentLength) {
         return; // Need more data
       }
 
-      const body = this.buffer.slice(0, this.contentLength);
-      this.buffer = this.buffer.slice(this.contentLength);
+      const body = this.buffer.subarray(0, this.contentLength).toString('utf-8');
+      this.buffer = this.buffer.subarray(this.contentLength);
       this.contentLength = null;
 
       try {
