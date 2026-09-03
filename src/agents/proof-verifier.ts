@@ -231,13 +231,39 @@ export class ProofVerifier {
     stmt.run(
       id,
       investigationId,
-      JSON.stringify(certificate.test_input),
-      JSON.stringify(certificate.observed_output),
+      ProofVerifier.safeSerialize(certificate.test_input),
+      ProofVerifier.safeSerialize(certificate.observed_output),
       certificate.violated_postcondition,
       certificate.admissibility_verified_at,
       certificate.soundness_verified_at,
       certificate.uniqueness_verified_at
     );
+  }
+
+  /**
+   * Serialize a certificate value for storage in a NOT NULL TEXT column.
+   *
+   * Plain JSON.stringify is unsafe here because the values that trigger numeric
+   * bugs are exactly the ones JSON cannot represent:
+   *  - NaN / Infinity / -Infinity serialize to `null`, silently destroying the
+   *    recorded evidence (this is a proof-carrying debugger — the observed output
+   *    IS the proof).
+   *  - `undefined` serializes to the JS value `undefined`, which better-sqlite3
+   *    rejects when binding, crashing the whole verification.
+   * We map these to explicit, round-trippable sentinel tokens instead.
+   */
+  static safeSerialize(value: unknown): string {
+    const serialized = JSON.stringify(value, (_key, v) => {
+      if (typeof v === 'number') {
+        if (Number.isNaN(v)) return '__NaN__';
+        if (v === Infinity) return '__Infinity__';
+        if (v === -Infinity) return '__-Infinity__';
+      }
+      return v;
+    });
+    // JSON.stringify(undefined) returns undefined; store a sentinel so the bind
+    // never receives undefined and the value is not lost.
+    return serialized === undefined ? '"__undefined__"' : serialized;
   }
 
   /**

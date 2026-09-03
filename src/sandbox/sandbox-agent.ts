@@ -15,6 +15,7 @@ export const MAX_MEMORY_MB = 512;
 export const MAX_STORAGE_MB = 10240; // 10 GB
 export const MAX_EXECUTION_SECONDS = 300;
 export const MAX_TTL_SECONDS = 600;
+export const MAX_DISK_IO_MB = 1024; // matches the circuit breaker's disk I/O ceiling
 
 /** Time allowed for resource cleanup after VM termination */
 export const CLEANUP_TIMEOUT_MS = 5000;
@@ -271,7 +272,7 @@ export class SandboxAgent {
       disk_mb: Math.min(Math.max(1, limits.disk_mb), MAX_STORAGE_MB),
       ttl_seconds: Math.min(Math.max(1, limits.ttl_seconds), MAX_TTL_SECONDS),
       cpu_time_seconds: Math.min(Math.max(1, limits.cpu_time_seconds), MAX_EXECUTION_SECONDS),
-      disk_io_mb: Math.min(Math.max(1, limits.disk_io_mb), limits.disk_io_mb),
+      disk_io_mb: Math.min(Math.max(1, limits.disk_io_mb), MAX_DISK_IO_MB),
     };
   }
 
@@ -484,18 +485,30 @@ export class SandboxAgent {
     const cleanupStart = Date.now();
 
     // Attempt graceful shutdown first
-    const cleanupPromise = this.performCleanup(instance);
+    let cleanupDone = false;
+    const cleanupPromise = this.performCleanup(instance).then(() => {
+      cleanupDone = true;
+    });
 
-    // Force-kill if cleanup takes longer than 5s (Req 15.7)
+    // Force-kill if cleanup takes longer than 5s (Req 15.7). The timer must be
+    // cleared when cleanup wins the race, otherwise it fires on every normal
+    // shutdown — leaking a timer and force-killing/double-releasing resources 5s later.
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
     const forceKillPromise = new Promise<void>((resolve) => {
-      setTimeout(async () => {
-        // If still not cleaned up, force-kill at hypervisor level
-        await this.forceKillInstance(instance).catch(() => {});
+      killTimer = setTimeout(async () => {
+        // Only force-kill if graceful cleanup has not completed in time.
+        if (!cleanupDone) {
+          await this.forceKillInstance(instance).catch(() => {});
+        }
         resolve();
       }, FORCE_KILL_TIMEOUT_MS);
     });
 
-    await Promise.race([cleanupPromise, forceKillPromise]);
+    try {
+      await Promise.race([cleanupPromise, forceKillPromise]);
+    } finally {
+      if (killTimer !== undefined) clearTimeout(killTimer);
+    }
 
     // Remove from active instances tracking
     this.activeInstances.delete(instance.id);

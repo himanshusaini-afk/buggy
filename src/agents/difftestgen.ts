@@ -278,17 +278,23 @@ export class DiffTestGen {
     const commonMethods = this.findCommonMethods(implementations);
 
     for (const method of commonMethods) {
+      if (totalInputsGenerated >= this.config.max_budget) {
+        break;
+      }
       methodsAnalyzed++;
 
       // Generate at least inputs_per_method test inputs for this method
       const testInputs = this.inputGenerator.generate(method, this.config.inputs_per_method);
-      totalInputsGenerated += testInputs.length;
 
-      // Execute each test input against all implementations
+      // Execute each test input against all implementations. Count inputs as they
+      // are actually executed (not the whole generated batch up front) so the budget
+      // bounds real comparisons — otherwise a max_budget below inputs_per_method could
+      // execute zero inputs yet report "behaviorally_equivalent".
       for (const input of testInputs) {
-        if (totalInputsGenerated > this.config.max_budget) {
+        if (totalInputsGenerated >= this.config.max_budget) {
           break;
         }
+        totalInputsGenerated++;
 
         const methodDiffs = await this.executeAndCompare(
           implementations,
@@ -297,10 +303,6 @@ export class DiffTestGen {
         );
 
         differences.push(...methodDiffs);
-      }
-
-      if (totalInputsGenerated > this.config.max_budget) {
-        break;
       }
     }
 

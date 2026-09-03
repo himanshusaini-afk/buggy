@@ -205,9 +205,14 @@ export class TrajSpec {
           const existingCommitIds: string[] = JSON.parse(existing.commit_ids);
           const mergedCommitIds = [...existingCommitIds, ...group.commits.map(c => c.id)];
 
-          // Recompute defect correlation with merged data
-          const existingDefectCount = this.countDefectCommitsFromIds(existingCommitIds, newCommits);
-          const totalDefects = existingDefectCount + group.defect_fixing_count;
+          // Recompute defect correlation with merged data. The original CommitInfo
+          // objects for previously-processed commits are no longer available, so we
+          // recover the prior defect count from the persisted score (D = score * N).
+          // (Looking the old commit IDs up in the *new* batch would always miss and
+          // silently drop every prior defect fix from the numerator.)
+          const priorScore = existing.defect_correlation_score ?? 0;
+          const priorDefectCount = Math.round(priorScore * existingCommitIds.length);
+          const totalDefects = priorDefectCount + group.defect_fixing_count;
           const totalCommits = mergedCommitIds.length;
           const defectCorrelation = this.computeDefectCorrelation(totalCommits, totalDefects);
 
@@ -534,29 +539,5 @@ export class TrajSpec {
     }
 
     return assertions;
-  }
-
-  /**
-   * Helper to count defect-fixing commits from a set of commit IDs,
-   * checking against the current batch of new commits.
-   *
-   * Used during incremental processing to estimate the defect count
-   * from previously stored commit IDs when the original CommitInfo
-   * objects are not available.
-   */
-  private countDefectCommitsFromIds(commitIds: string[], availableCommits: CommitInfo[]): number {
-    const commitMap = new Map(availableCommits.map(c => [c.id, c]));
-    let count = 0;
-
-    for (const id of commitIds) {
-      const commit = commitMap.get(id);
-      if (commit?.is_defect_fix) {
-        count++;
-      }
-    }
-
-    // For commits not in the available set, we can't determine their defect status
-    // so we return only the known count. This is an approximation for incremental updates.
-    return count;
   }
 }

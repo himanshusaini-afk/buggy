@@ -479,10 +479,13 @@ function extractFunctionDeclarations(parseResult: ParseResult): FunctionInfo[] {
   const functions: FunctionInfo[] = [];
 
   function walk(node: ParseResult['cst']): void {
+    // Note: 'arrow_function' is intentionally excluded here. Named arrow functions
+    // (const foo = () => {}) are captured by the variable_declarator branch below.
+    // Including them here would double-count them — once with their real name and
+    // again as '<anonymous>' when walk() recurses into the arrow_function node.
     const isFunctionType =
       node.type === 'function_declaration' ||
       node.type === 'method_definition' ||
-      node.type === 'arrow_function' ||
       node.type === 'generator_function_declaration';
 
     if (isFunctionType) {
