@@ -911,7 +911,7 @@ describe('4. Bug Proving Agent Complex Scenarios', () => {
       const verifier = new ProofVerifier(db, {
         admissibility_timeout_ms: 5000,
         soundness_timeout_ms: 5000,
-        uniqueness_timeout_ms: 5000,
+        feasibility_timeout_ms: 5000,
       });
 
       const spec: FunctionSpecification = {
@@ -944,9 +944,12 @@ describe('4. Bug Proving Agent Complex Scenarios', () => {
         name: 'fn',
         preconditions: [(input) => (input as number) > 0], // precondition: input > 0
         postconditions: [(_input, output) => (output as number) >= 0], // postcondition: output >= 0
+        // A non-negative output (0 or 5) satisfies the postcondition → feasibility holds.
+        output_domain: () => [-1, 0, 5],
       };
 
-      // Input satisfies preconditions, output violates postconditions
+      // Input satisfies preconditions, the observed output violates the
+      // postcondition, and the domain contains a spec-satisfying output.
       const result = await verifier.verify(
         { test_input: 5, observed_output: -1, postconditions: ['result >= 0'], violated_postcondition: 'result >= 0' },
         spec
@@ -954,7 +957,7 @@ describe('4. Bug Proving Agent Complex Scenarios', () => {
 
       expect(result.admissibility).toBe(true);
       expect(result.soundness).toBe(true);
-      expect(result.uniqueness).toBe(true);
+      expect(result.feasibility).toBe(true);
       expect(result.certified).toBe(true);
       expect(result.certificate).toBeDefined();
       expect(result.certificate!.violated_postcondition).toBe('result >= 0');
@@ -1846,13 +1849,15 @@ function callee(x: number): number {
         name: 'slowFunction',
         preconditions: [() => true], // All inputs are valid
         postconditions: [(_input, output) => output !== 'timeout'], // Should not timeout
+        // A non-'timeout' output satisfies the postcondition → feasibility holds.
+        output_domain: () => ['timeout', 'ok'],
       }
     );
 
     // Step 3: Verify the proof is certified
     expect(proofResult.admissibility).toBe(true);
     expect(proofResult.soundness).toBe(true);
-    expect(proofResult.uniqueness).toBe(true);
+    expect(proofResult.feasibility).toBe(true);
     expect(proofResult.certified).toBe(true);
     expect(proofResult.certificate).toBeDefined();
 

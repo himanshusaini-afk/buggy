@@ -98,7 +98,7 @@ sequenceDiagram
     BPA->>BPA: run PROBE loop
     BPA->>SA: execute(fuzzing_inputs)
     SA-->>BPA: oracle_violations
-    BPA->>BPA: verify proof (Admissibility, Soundness, Uniqueness)
+    BPA->>BPA: verify proof (Admissibility, Soundness, Feasibility)
     BPA-->>O: proof_of_failure_certificate
 
     O->>RA: generate_patches(proof)
@@ -824,15 +824,15 @@ interface IntermediateResults {
 
 **Validates: Requirements 11.2**
 
-### Property 19: Uniqueness Verification
+### Property 19: Feasibility Verification
 
-*For any* test input and function specification with bounded output domain, the uniqueness check shall return true if and only if no alternative output (different from the observed output) satisfies all declared postconditions for the given input.
+*For any* test input and function specification with a bounded output domain, the feasibility check shall return true if and only if at least one output in the domain satisfies all declared postconditions for the given input (an empty or entirely-violating domain yields false). This proves the specification is satisfiable, so the observed violation is a genuine code failure rather than an impossible specification.
 
 **Validates: Requirements 11.3**
 
 ### Property 20: Proof Certification Decision
 
-*For any* proof-of-failure candidate, it shall be certified (producing a certificate with input, output, violated postcondition, and timestamps) if and only if Admissibility, Soundness, and Uniqueness all verify successfully; otherwise it shall be marked 'unconfirmed' with the failed property and reason recorded.
+*For any* proof-of-failure candidate, it shall be certified (producing a certificate with input, output, violated postcondition, and timestamps) if and only if Admissibility, Soundness, and Feasibility all verify successfully; otherwise it shall be marked 'unconfirmed' with the failed property and reason recorded.
 
 **Validates: Requirements 11.4, 11.5**
 

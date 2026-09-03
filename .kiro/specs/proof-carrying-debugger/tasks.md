@@ -255,7 +255,7 @@ This plan implements the multi-agent proof-carrying debugger as a TypeScript pro
     - Implement `verifyProof(candidate: ProofCandidate): Promise<ProofVerificationResult>`
     - Verify Admissibility: input satisfies all preconditions (≤30s)
     - Verify Soundness: output violates ≥1 postcondition (≤30s)
-    - Verify Uniqueness: no alternative output satisfies all postconditions (≤60s)
+    - Verify Feasibility: at least one output in the declared domain satisfies all postconditions (≤60s)
     - All 3 pass → produce certificate with input, output, violated postcondition, timestamps; trigger repair
     - Any fail → mark unconfirmed with failed property and reason
     - Timeout → mark inconclusive with timed-out property
@@ -321,7 +321,7 @@ This plan implements the multi-agent proof-carrying debugger as a TypeScript pro
   - [x]* 8.16 Write property tests for proof verification properties
     - **Property 17: Admissibility Verification** — verify: returns true iff all preconditions evaluate true on input
     - **Property 18: Soundness Verification** — verify: returns true iff ≥1 postcondition evaluates false given input/output
-    - **Property 19: Uniqueness Verification** — verify: returns true iff no alternative output satisfies all postconditions
+    - **Property 19: Feasibility Verification** — verify: returns true iff at least one domain output satisfies all postconditions
     - **Property 20: Proof Certification Decision** — verify: certified iff all 3 pass; unconfirmed with failed property otherwise
     - Generate random precondition/postcondition functions + random inputs
     - Test file: `tests/properties/proof.property.test.ts`

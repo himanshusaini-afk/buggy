@@ -28,8 +28,8 @@ This document specifies the requirements for a Customizable, Proof-Carrying Prog
 - **Determinism_Oracle**: A Semantic Oracle that detects non-deterministic behavior across repeated executions
 - **Overflow_Oracle**: A Semantic Oracle that detects integer overflow and buffer overflow conditions
 - **Admissibility**: A proof property requiring that input satisfies preconditions: pre(i)
-- **Soundness**: A proof property requiring that output satisfies postconditions given input: post(i, o)
-- **Uniqueness**: A proof property requiring that no alternative output satisfies postconditions: ∀o' ≠ o, ¬post(i, o')
+- **Soundness**: A proof property requiring that the observed output violates at least one postcondition: ∃ post, ¬post(i, o)
+- **Feasibility**: A proof property requiring that at least one output in the declared domain satisfies all postconditions (∃o' in domain, post(i, o')), proving the specification is satisfiable for the input and the observed violation is a genuine code failure rather than an impossible specification. (Formerly named "Uniqueness"; the persisted certificate column keeps the legacy `uniqueness_verified_at` name.)
 - **Layered_Progressive_Repair**: A multi-stage filtering pipeline for candidate patches: Static Compilation → Transition Model Emulation → Sandbox Test Execution
 - **M_SWT**: Transition Model Emulation — a lightweight model that emulates program state transitions without full execution
 - **AST_Difference_Vector**: An 11-property vector computed across 3 edit states (Gen, Del, Remain) forming a 66-dimensional semantic feature representation
@@ -179,9 +179,9 @@ This document specifies the requirements for a Customizable, Proof-Carrying Prog
 
 1. WHEN a failing test is identified as a candidate proof-of-failure, THE Bug_Proving_Agent SHALL verify Admissibility by confirming that the test input satisfies all preconditions declared in the function's specification within 30 seconds
 2. WHEN a failing test is identified as a candidate proof-of-failure, THE Bug_Proving_Agent SHALL verify Soundness by confirming that the test output violates at least one postcondition declared in the function's specification within 30 seconds
-3. WHEN a failing test is identified as a candidate proof-of-failure, THE Bug_Proving_Agent SHALL verify Uniqueness by confirming within 60 seconds that no alternative output satisfying all postconditions exists for the given input, using the function's declared output domain as the search space
-4. WHEN all three proof properties (Admissibility, Soundness, Uniqueness) are verified, THE Bug_Proving_Agent SHALL produce a proof-of-failure certificate containing the test input, observed output, violated postcondition, and verification timestamps, and trigger Phase II repair
-5. IF any of the three proof properties (Admissibility, Soundness, Uniqueness) cannot be verified, THEN THE Bug_Proving_Agent SHALL mark the candidate as unconfirmed, record which property failed verification with the reason, and exclude the candidate from Phase II repair
+3. WHEN a failing test is identified as a candidate proof-of-failure, THE Bug_Proving_Agent SHALL verify Feasibility by confirming within 60 seconds that at least one output satisfying all postconditions exists for the given input, using the function's declared output domain as the search space (an empty or entirely-violating domain fails this check)
+4. WHEN all three proof properties (Admissibility, Soundness, Feasibility) are verified, THE Bug_Proving_Agent SHALL produce a proof-of-failure certificate containing the test input, observed output, violated postcondition, and verification timestamps, and trigger Phase II repair
+5. IF any of the three proof properties (Admissibility, Soundness, Feasibility) cannot be verified, THEN THE Bug_Proving_Agent SHALL mark the candidate as unconfirmed, record which property failed verification with the reason, and exclude the candidate from Phase II repair
 6. IF the verification of any proof property exceeds its time limit, THEN THE Bug_Proving_Agent SHALL abort the verification, mark the candidate as inconclusive, and record the property that timed out
 
 ### Requirement 12: Candidate Patch Generation

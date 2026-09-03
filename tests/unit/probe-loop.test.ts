@@ -431,7 +431,7 @@ describe('Bug_Proving_Agent - Unit Tests', () => {
       const verifier = new ProofVerifier(db, {
         admissibility_timeout_ms: 1, // 1ms timeout
         soundness_timeout_ms: 30000,
-        uniqueness_timeout_ms: 60000,
+        feasibility_timeout_ms: 60000,
       });
 
       const candidate = {
@@ -462,7 +462,7 @@ describe('Bug_Proving_Agent - Unit Tests', () => {
       const verifier = new ProofVerifier(db, {
         admissibility_timeout_ms: 30000,
         soundness_timeout_ms: 1, // 1ms timeout
-        uniqueness_timeout_ms: 60000,
+        feasibility_timeout_ms: 60000,
       });
 
       const candidate = {
@@ -487,13 +487,13 @@ describe('Bug_Proving_Agent - Unit Tests', () => {
       expect(result.failure_reason).toContain('Soundness');
     });
 
-    it('should mark as inconclusive when uniqueness verification times out', async () => {
+    it('should mark as inconclusive when feasibility verification times out', async () => {
       db = initializeDatabase(':memory:');
 
       const verifier = new ProofVerifier(db, {
         admissibility_timeout_ms: 30000,
         soundness_timeout_ms: 30000,
-        uniqueness_timeout_ms: 1, // 1ms timeout
+        feasibility_timeout_ms: 1, // 1ms timeout
       });
 
       const candidate = {
@@ -503,19 +503,19 @@ describe('Bug_Proving_Agent - Unit Tests', () => {
         violated_postcondition: 'y >= 0',
       };
 
-      // Soundness check: postcondition must evaluate to false for the observed output
-      // Uniqueness check: postcondition throws when evaluating alternative outputs → treated as timeout
+      // Soundness check: postcondition must evaluate to false for the observed output.
+      // Feasibility check: postcondition throws when evaluating domain outputs → treated as timeout.
       let callCount = 0;
       const spec: FunctionSpecification = {
         name: 'testFunc',
         preconditions: [(_input) => true],
         postconditions: [(_input, output) => {
           callCount++;
-          // First call is soundness check (must return false to pass soundness)
+          // First call is the soundness check (must return false to pass soundness).
           if (callCount <= 1) {
             return (output as { y: number }).y >= 0; // false for y=-1
           }
-          // Subsequent calls (uniqueness) throw to simulate timeout
+          // Subsequent calls (feasibility) throw to simulate a timeout.
           throw new Error('simulated long computation');
         }],
         output_domain: () => [{ y: 5 }, { y: 10 }],
@@ -526,9 +526,9 @@ describe('Bug_Proving_Agent - Unit Tests', () => {
       expect(result.certified).toBe(false);
       expect(result.admissibility).toBe(true);
       expect(result.soundness).toBe(true);
-      expect(result.uniqueness).toBe(false);
+      expect(result.feasibility).toBe(false);
       expect(result.failure_reason).toContain('timed out');
-      expect(result.failure_reason).toContain('Uniqueness');
+      expect(result.failure_reason).toContain('Feasibility');
     });
 
     it('should produce a certificate when all three properties verify successfully', async () => {
@@ -537,7 +537,7 @@ describe('Bug_Proving_Agent - Unit Tests', () => {
       const verifier = new ProofVerifier(db, {
         admissibility_timeout_ms: 30000,
         soundness_timeout_ms: 30000,
-        uniqueness_timeout_ms: 60000,
+        feasibility_timeout_ms: 60000,
       });
 
       const candidate = {
@@ -552,9 +552,9 @@ describe('Bug_Proving_Agent - Unit Tests', () => {
         preconditions: [(input) => typeof input === 'number' && (input as number) > 0],
         // Postcondition: output must equal input. Observed output -5 violates this → soundness passes
         postconditions: [(input, output) => output === input],
-        // Domain contains only values that DON'T satisfy postcondition for input=5
-        // (only output=5 would satisfy, but it's not in domain, and observed=-5 is excluded from uniqueness check)
-        output_domain: () => [-5, -1, 0, 10, 99],
+        // Domain contains the correct output 5, which satisfies output === input
+        // for input=5 (feasibility); the observed output -5 violates it (soundness).
+        output_domain: () => [-5, -1, 0, 5, 10, 99],
       };
 
       const result = await verifier.verify(candidate, spec);
@@ -562,7 +562,7 @@ describe('Bug_Proving_Agent - Unit Tests', () => {
       expect(result.certified).toBe(true);
       expect(result.admissibility).toBe(true);
       expect(result.soundness).toBe(true);
-      expect(result.uniqueness).toBe(true);
+      expect(result.feasibility).toBe(true);
       expect(result.certificate).toBeDefined();
       expect(result.certificate!.test_input).toBe(5);
       expect(result.certificate!.observed_output).toBe(-5);

@@ -19,13 +19,13 @@ export interface FunctionSpecification {
 export interface ProofVerifierConfig {
   admissibility_timeout_ms: number;  // default 30000
   soundness_timeout_ms: number;      // default 30000
-  uniqueness_timeout_ms: number;     // default 60000
+  feasibility_timeout_ms: number;    // default 60000
 }
 
 const DEFAULT_CONFIG: ProofVerifierConfig = {
   admissibility_timeout_ms: 30000,
   soundness_timeout_ms: 30000,
-  uniqueness_timeout_ms: 60000,
+  feasibility_timeout_ms: 60000,
 };
 
 /**
@@ -34,7 +34,9 @@ const DEFAULT_CONFIG: ProofVerifierConfig = {
  *
  * - Admissibility: The test input satisfies all declared preconditions.
  * - Soundness: The observed output violates at least one postcondition.
- * - Uniqueness: No alternative output in the domain satisfies all postconditions.
+ * - Feasibility: At least one output in the declared domain satisfies all
+ *   postconditions, proving the specification is satisfiable for this input so
+ *   the observed violation is a genuine code failure (not an impossible spec).
  *
  * On successful verification of all three, a ProofOfFailureCertificate is produced
  * and stored in the proof_certificates table.
@@ -68,7 +70,7 @@ export class ProofVerifier {
       return {
         admissibility: false,
         soundness: false,
-        uniqueness: false,
+        feasibility: false,
         certified: false,
         failure_reason: 'Verification timed out on property: Admissibility',
       };
@@ -80,7 +82,7 @@ export class ProofVerifier {
       return {
         admissibility: false,
         soundness: false,
-        uniqueness: false,
+        feasibility: false,
         certified: false,
         failure_reason: 'Admissibility failed: input does not satisfy all preconditions',
       };
@@ -96,7 +98,7 @@ export class ProofVerifier {
       return {
         admissibility: true,
         soundness: false,
-        uniqueness: false,
+        feasibility: false,
         certified: false,
         failure_reason: 'Verification timed out on property: Soundness',
       };
@@ -108,38 +110,39 @@ export class ProofVerifier {
       return {
         admissibility: true,
         soundness: false,
-        uniqueness: false,
+        feasibility: false,
         certified: false,
         failure_reason: 'Soundness failed: output does not violate any postcondition',
       };
     }
 
-    // Step 3: Verify Uniqueness with timeout
+    // Step 3: Verify Feasibility with timeout
     const outputDomain = spec.output_domain ? spec.output_domain() : [];
-    const uniquenessResult = await this.runWithTimeout(
-      () => this.verifyUniqueness(test_input, observed_output, spec.postconditions, outputDomain),
-      this.config.uniqueness_timeout_ms
+    const feasibilityResult = await this.runWithTimeout(
+      () => this.verifyFeasibility(test_input, spec.postconditions, outputDomain),
+      this.config.feasibility_timeout_ms
     );
 
-    if (uniquenessResult.timedOut) {
+    if (feasibilityResult.timedOut) {
       return {
         admissibility: true,
         soundness: true,
-        uniqueness: false,
+        feasibility: false,
         certified: false,
-        failure_reason: 'Verification timed out on property: Uniqueness',
+        failure_reason: 'Verification timed out on property: Feasibility',
       };
     }
 
-    const uniquenessTimestamp = new Date().toISOString();
+    const feasibilityTimestamp = new Date().toISOString();
 
-    if (!uniquenessResult.value) {
+    if (!feasibilityResult.value) {
       return {
         admissibility: true,
         soundness: true,
-        uniqueness: false,
+        feasibility: false,
         certified: false,
-        failure_reason: 'Uniqueness failed: an alternative output satisfying all postconditions exists',
+        failure_reason:
+          'Feasibility failed: no output in the declared domain satisfies all postconditions (the specification is not satisfiable for this input)',
       };
     }
 
@@ -150,7 +153,7 @@ export class ProofVerifier {
       violated_postcondition: candidate.violated_postcondition,
       admissibility_verified_at: admissibilityTimestamp,
       soundness_verified_at: soundnessTimestamp,
-      uniqueness_verified_at: uniquenessTimestamp,
+      uniqueness_verified_at: feasibilityTimestamp,
     };
 
     // Store certificate in the database
@@ -159,7 +162,7 @@ export class ProofVerifier {
     return {
       admissibility: true,
       soundness: true,
-      uniqueness: true,
+      feasibility: true,
       certified: true,
       certificate,
     };
@@ -186,31 +189,32 @@ export class ProofVerifier {
   }
 
   /**
-   * Verify Uniqueness: no alternative output satisfies all postconditions.
-   * Returns true iff no other output in the domain satisfies all postconditions.
+   * Verify Feasibility: at least one output in the declared domain satisfies all
+   * postconditions. This proves the specification is satisfiable for the given
+   * input, so the observed violation is a genuine code failure rather than an
+   * impossible/contradictory specification.
+   *
+   * Returns true iff some output in the domain satisfies all postconditions.
+   * An empty (or entirely violating) domain yields false: feasibility cannot be
+   * established, so the candidate must NOT be certified.
    */
-  verifyUniqueness(
+  verifyFeasibility(
     input: unknown,
-    observedOutput: unknown,
     postconditions: Array<(input: unknown, output: unknown) => boolean>,
     outputDomain: unknown[]
   ): boolean {
-    for (const alternativeOutput of outputDomain) {
-      // Skip the observed output itself
-      if (alternativeOutput === observedOutput) {
-        continue;
-      }
-
-      // Check if this alternative satisfies ALL postconditions
-      const satisfiesAll = postconditions.every((post) => post(input, alternativeOutput));
+    for (const candidateOutput of outputDomain) {
+      // A correct output satisfies ALL postconditions. It is necessarily
+      // different from the observed output, which violated at least one
+      // postcondition (established by Soundness).
+      const satisfiesAll = postconditions.every((post) => post(input, candidateOutput));
       if (satisfiesAll) {
-        // Found an alternative that satisfies all postconditions → uniqueness fails
-        return false;
+        return true;
       }
     }
 
-    // No alternative output satisfies all postconditions → uniqueness holds
-    return true;
+    // No output in the domain satisfies all postconditions.
+    return false;
   }
 
   /**
