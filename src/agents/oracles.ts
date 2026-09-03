@@ -401,6 +401,12 @@ class DeterminismOracle implements Oracle {
    */
   private deepEqual(a: unknown, b: unknown): boolean {
     if (a === b) return true;
+    // NaN !== NaN, but two NaN outputs are deterministically identical. Without
+    // this the oracle falsely flags a function that consistently returns NaN as
+    // non-deterministic (false positive).
+    if (typeof a === 'number' && typeof b === 'number' && Number.isNaN(a) && Number.isNaN(b)) {
+      return true;
+    }
     if (a === null || b === null) return false;
     if (typeof a !== typeof b) return false;
 
@@ -433,7 +439,14 @@ class OverflowOracle implements Oracle {
     }
 
     for (const numericValue of step.numeric_values) {
-      if (numericValue.value < numericValue.min || numericValue.value > numericValue.max) {
+      // A NaN value is neither < min nor > max, so a plain range check silently
+      // lets it through. NaN is a definitive out-of-bounds / invalid-arithmetic
+      // signal (e.g. overflow producing NaN), so flag it explicitly.
+      const outOfBounds =
+        Number.isNaN(numericValue.value) ||
+        numericValue.value < numericValue.min ||
+        numericValue.value > numericValue.max;
+      if (outOfBounds) {
         const details: OverflowDetails = {
           offending_value: numericValue.value,
           expected_bounds: { min: numericValue.min, max: numericValue.max },

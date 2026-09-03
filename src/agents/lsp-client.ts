@@ -217,42 +217,60 @@ export class LspClient {
     const message = JSON.stringify({ jsonrpc: '2.0', id, method, params });
     const content = `Content-Length: ${Buffer.byteLength(message)}\r\n\r\n${message}`;
 
-    const responsePromise = new Promise<unknown>((resolve, reject) => {
+    // Bail out before attaching any listeners/timers so the not-writable path
+    // can't leak them.
+    if (!this.process?.stdin?.writable) {
+      return Promise.resolve(null);
+    }
+    const stdin = this.process.stdin;
+
+    return new Promise<unknown>((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let settled = false;
+
+      // Single teardown for every exit path (response, error, timeout, write
+      // failure). The previous implementation only removed listeners inside
+      // onResponse/onError and never cleared the timeout timer, so a timed-out
+      // or non-writable request leaked both the emitter listeners and a live
+      // 5s timer on every call.
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        this.responseEmitter.off('response', onResponse);
+        this.responseEmitter.off('error', onError);
+        if (timer !== undefined) clearTimeout(timer);
+      };
+
       const onResponse = (response: { id: number; result?: unknown; error?: unknown }) => {
-        if (response.id === id) {
-          this.responseEmitter.off('response', onResponse);
-          this.responseEmitter.off('error', onError);
-          if (response.error) {
-            reject(new Error(String((response.error as { message?: string }).message ?? response.error)));
-          } else {
-            resolve(response.result);
-          }
+        if (response.id !== id) return;
+        finish();
+        if (response.error) {
+          reject(new Error(String((response.error as { message?: string }).message ?? response.error)));
+        } else {
+          resolve(response.result);
         }
       };
 
       const onError = (err: Error) => {
-        this.responseEmitter.off('response', onResponse);
-        this.responseEmitter.off('error', onError);
+        finish();
         reject(err);
       };
 
       this.responseEmitter.on('response', onResponse);
       this.responseEmitter.on('error', onError);
-    });
 
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
+      timer = setTimeout(() => {
+        finish();
         reject(new Error(`LSP request '${method}' timed out after ${REQUEST_TIMEOUT_MS}ms`));
       }, REQUEST_TIMEOUT_MS);
+
+      try {
+        stdin.write(content);
+      } catch (err) {
+        finish();
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
-
-    if (!this.process?.stdin?.writable) {
-      return Promise.resolve(null);
-    }
-
-    this.process.stdin.write(content);
-
-    return Promise.race([responsePromise, timeoutPromise]);
   }
 
   /**

@@ -44,6 +44,19 @@ export interface ExecuteResult {
   stackTrace?: string;
 }
 
+/**
+ * Shape of the payload the generated runner script sends back (over the IPC
+ * channel, or stdout as a fallback). Kept separate from ExecuteResult, which is
+ * the richer result the executor returns to its callers.
+ */
+interface RunnerResult {
+  success: boolean;
+  output?: unknown;
+  error?: string;
+  exceptionType?: string;
+  stackTrace?: string;
+}
+
 export class SubprocessExecutor {
   private timeout: number;
   private tempDir: string;
@@ -70,6 +83,11 @@ export class SubprocessExecutor {
       let stderr = '';
       let resolved = false;
       let timedOut = false;
+      // Result delivered over the dedicated IPC channel. Reading it from IPC
+      // instead of stdout means the target function's own console.log output
+      // can never corrupt the result payload and make a correct run look like a
+      // crash (JSON.parse of polluted stdout would throw).
+      let ipcResult: RunnerResult | undefined;
 
       const child = fork(filePath, [], {
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
@@ -90,6 +108,10 @@ export class SubprocessExecutor {
 
       child.stderr?.on('data', (data) => {
         stderr += data.toString();
+      });
+
+      child.on('message', (msg) => {
+        ipcResult = msg as RunnerResult;
       });
 
       child.on('close', (code) => {
@@ -118,37 +140,19 @@ export class SubprocessExecutor {
           return;
         }
 
-        // Parse stdout as JSON result
-        try {
-          const result = JSON.parse(stdout.trim());
-          if (result.success) {
-            // Convert NaN/Infinity sentinels back to actual values
-            let output = result.output;
-            if (output === '__NaN__') output = NaN;
-            else if (output === '__Infinity__') output = Infinity;
-            else if (output === '__NegInfinity__') output = -Infinity;
-
-            resolve({
-              success: true,
-              output,
-              timedOut: false,
-              crashed: false,
-              duration_ms,
-            });
-          } else {
-            resolve({
-              success: false,
-              output: undefined,
-              error: result.error,
-              timedOut: false,
-              crashed: true,
-              duration_ms,
-              exceptionType: result.exceptionType,
-              stackTrace: result.stackTrace,
-            });
+        // Prefer the IPC-delivered result. Fall back to parsing stdout only for
+        // backward compatibility (e.g. a runner with no IPC channel).
+        let result = ipcResult;
+        if (result === undefined) {
+          try {
+            result = JSON.parse(stdout.trim()) as RunnerResult;
+          } catch {
+            result = undefined;
           }
-        } catch {
-          // Could not parse output — treat as crash
+        }
+
+        if (result === undefined) {
+          // No parseable result on either channel — treat as a crash.
           resolve({
             success: false,
             output: undefined,
@@ -156,6 +160,34 @@ export class SubprocessExecutor {
             timedOut: false,
             crashed: true,
             duration_ms,
+          });
+          return;
+        }
+
+        if (result.success) {
+          // Convert NaN/Infinity sentinels back to actual values
+          let output = result.output;
+          if (output === '__NaN__') output = NaN;
+          else if (output === '__Infinity__') output = Infinity;
+          else if (output === '__NegInfinity__') output = -Infinity;
+
+          resolve({
+            success: true,
+            output,
+            timedOut: false,
+            crashed: false,
+            duration_ms,
+          });
+        } else {
+          resolve({
+            success: false,
+            output: undefined,
+            error: result.error,
+            timedOut: false,
+            crashed: true,
+            duration_ms,
+            exceptionType: result.exceptionType,
+            stackTrace: result.stackTrace,
           });
         }
       });
@@ -227,6 +259,26 @@ const fn = (() => {
 
 const input = ${inputJson};
 
+// Send the result back over the IPC channel so that anything the target
+// function writes to stdout (console.log, etc.) cannot corrupt the payload.
+// Falls back to stdout only if no IPC channel is present.
+function emit(result) {
+  try {
+    if (typeof process.send === 'function') {
+      process.send(result, () => process.exit(0));
+      return;
+    }
+  } catch (e) {
+    // IPC send failed (e.g. non-serializable payload) — fall through to stdout.
+  }
+  try {
+    process.stdout.write(JSON.stringify(result));
+  } catch (e) {
+    process.stdout.write(JSON.stringify({ success: false, error: 'Result not serializable: ' + (e && e.message) }));
+  }
+  process.exit(0);
+}
+
 async function run() {
   try {
     // If input is an array, spread it as multiple arguments
@@ -236,33 +288,30 @@ async function run() {
     const resolved = result instanceof Promise ? await result : result;
     // Handle NaN/Infinity which can't be represented in JSON
     if (typeof resolved === 'number' && Number.isNaN(resolved)) {
-      process.stdout.write(JSON.stringify({ success: true, output: '__NaN__' }));
+      return { success: true, output: '__NaN__' };
     } else if (resolved === Infinity) {
-      process.stdout.write(JSON.stringify({ success: true, output: '__Infinity__' }));
+      return { success: true, output: '__Infinity__' };
     } else if (resolved === -Infinity) {
-      process.stdout.write(JSON.stringify({ success: true, output: '__NegInfinity__' }));
+      return { success: true, output: '__NegInfinity__' };
     } else {
-      process.stdout.write(JSON.stringify({ success: true, output: resolved }));
+      return { success: true, output: resolved };
     }
   } catch (err) {
-    process.stdout.write(JSON.stringify({
+    return {
       success: false,
       error: err.message || String(err),
       exceptionType: err.constructor?.name || 'Error',
       stackTrace: err.stack || '',
-    }));
+    };
   }
 }
 
-run().then(() => process.exit(0)).catch((e) => {
-  process.stdout.write(JSON.stringify({
-    success: false,
-    error: e.message || String(e),
-    exceptionType: e.constructor?.name || 'Error',
-    stackTrace: e.stack || '',
-  }));
-  process.exit(1);
-});
+run().then(emit).catch((e) => emit({
+  success: false,
+  error: e.message || String(e),
+  exceptionType: e.constructor?.name || 'Error',
+  stackTrace: e.stack || '',
+}));
 `;
   }
 
