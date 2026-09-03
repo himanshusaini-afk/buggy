@@ -24,6 +24,7 @@ import {
 } from './difftestgen.js';
 import { RealFuzzer, type FuzzTarget, type FuzzConfig, type FuzzReport } from './real-fuzzer.js';
 import { SubprocessExecutor, type ExecuteResult } from '../sandbox/subprocess-executor.js';
+import { evaluatePrecondition, evaluatePostcondition } from './spec-conditions.js';
 import type { SourceLocation } from '../types/graph.js';
 import type { InvestigationTarget } from '../types/orchestrator.js';
 import type { ProofOfFailureCertificate } from '../types/proof.js';
@@ -99,6 +100,7 @@ export class BugProvingAgent {
       postconditions: target.specification.postconditions,
       preconditions: target.specification.preconditions,
       parameterTypes: target.specification.parameters.map((p) => p.type),
+      parameterNames: target.specification.parameters.map((p) => p.name),
     };
 
     // Step 3: Run real fuzzer
@@ -142,7 +144,11 @@ export class BugProvingAgent {
     const now = new Date().toISOString();
 
     // Admissibility: check that the triggering input satisfies all preconditions
-    const admissible = this.checkAdmissibility(target.preconditions, violation.input);
+    const admissible = this.checkAdmissibility(
+      target.preconditions,
+      violation.input,
+      target.parameterNames,
+    );
     if (!admissible) return null;
 
     // Determinism violations are special: "the function must be deterministic"
@@ -200,6 +206,7 @@ export class BugProvingAgent {
         violation.violatedPostcondition,
         rerunResult.output,
         violation.input,
+        target.parameterNames,
       );
     }
 
@@ -231,6 +238,7 @@ export class BugProvingAgent {
           violation.violatedPostcondition,
           result.output,
           violation.input,
+          target.parameterNames,
         );
         if (violates) uniquenessCount++;
       }
@@ -254,15 +262,19 @@ export class BugProvingAgent {
   /**
    * Check if a given input satisfies all preconditions.
    */
-  private checkAdmissibility(preconditions: string[], input: unknown): boolean {
+  private checkAdmissibility(
+    preconditions: string[],
+    input: unknown,
+    parameterNames: string[],
+  ): boolean {
     if (preconditions.length === 0) return true;
 
     for (const precondition of preconditions) {
       try {
-        const checkFn = new Function('input', `return (${precondition});`);
-        if (!checkFn(input)) return false;
+        if (!evaluatePrecondition(precondition, input, parameterNames)) return false;
       } catch {
-        // Cannot evaluate precondition — assume admissible
+        // Prose or otherwise unevaluable precondition — can't judge admissibility
+        // from it, so don't let it block certification.
         continue;
       }
     }
@@ -295,10 +307,10 @@ export class BugProvingAgent {
     postcondition: string,
     output: unknown,
     input: unknown,
+    parameterNames: string[],
   ): boolean {
     try {
-      const checkFn = new Function('result', 'input', `return (${postcondition});`);
-      return !checkFn(output, input);
+      return !evaluatePostcondition(postcondition, input, output, parameterNames);
     } catch {
       return false;
     }

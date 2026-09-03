@@ -9,18 +9,31 @@
 
 import { SubprocessExecutor } from '../sandbox/subprocess-executor.js';
 import type { ExecuteResult } from '../sandbox/subprocess-executor.js';
+import { evaluatePrecondition, evaluatePostcondition } from './spec-conditions.js';
 
 export interface FuzzTarget {
   /** Source code of the function */
   sourceCode: string;
   /** Name of the function to fuzz */
   functionName: string;
-  /** Postconditions to check (as JS expressions where 'result' is the return value and 'input' is the argument) */
+  /**
+   * Postconditions to check, as JS expressions. The function's parameter names
+   * are in scope, along with `result` (the return value) and `input` (the sole
+   * argument for single-parameter functions, else the full argument list).
+   */
   postconditions: string[];
-  /** Preconditions (as JS expressions where 'input' is the argument) — used to filter generated inputs */
+  /**
+   * Preconditions used to filter generated inputs, as JS expressions. The
+   * function's parameter names are in scope, along with `input`.
+   */
   preconditions: string[];
-  /** Parameter types for smart input generation */
+  /** Parameter types for smart input generation. */
   parameterTypes: string[];
+  /**
+   * Parameter names, positionally matching parameterTypes. Bound when evaluating
+   * pre/postconditions so specifications can reference parameters by name.
+   */
+  parameterNames: string[];
 }
 
 export interface FuzzConfig {
@@ -70,6 +83,7 @@ export class RealFuzzer {
     const violations: FuzzViolation[] = [];
     let totalAttempts = 0;
     let environmentErrors = 0;
+    const paramNames = target.parameterNames ?? [];
 
     // Generate inputs: edge cases first, then random
     const inputs = this.generateInputs(target.parameterTypes);
@@ -82,7 +96,7 @@ export class RealFuzzer {
       // inputs must NOT consume the budget: counting them here would let a strict
       // precondition exhaust maxAttempts after only a handful of real executions,
       // sharply weakening coverage (missed bugs). Only executed inputs are counted.
-      if (!this.checkPreconditions(target.preconditions, input)) {
+      if (!this.checkPreconditions(target.preconditions, input, paramNames)) {
         continue;
       }
 
@@ -146,6 +160,7 @@ export class RealFuzzer {
         result.output,
         input,
         result.duration_ms,
+        paramNames,
       );
       if (postconditionViolation) {
         violations.push(postconditionViolation);
@@ -184,16 +199,19 @@ export class RealFuzzer {
    */
   private generateInputs(parameterTypes: string[]): unknown[] {
     if (parameterTypes.length === 0) {
-      // No type info — try common values
-      return this.generateGenericInputs();
+      // No type info — try common values, each as a single argument.
+      return this.generateGenericInputs().map((v) => [v]);
     }
 
     if (parameterTypes.length === 1) {
-      // Single parameter — return flat values
-      return this.generateForType(parameterTypes[0]);
+      // Wrap each value as a single-element argument list [value]. An "input" is
+      // always the positional argument list, so the executor (fn(...args)) and
+      // condition binding agree. Without this, a single ARRAY argument would be
+      // spread into fn(1,2,3) instead of fn([1,2,3]).
+      return this.generateForType(parameterTypes[0]).map((v) => [v]);
     }
 
-    // Multiple parameters — generate combinations as arrays
+    // Multiple parameters — generate combinations already shaped as arg lists.
     const perParam = parameterTypes.map((t) => this.generateForType(t));
     return this.generateCombinations(perParam);
   }
@@ -474,17 +492,20 @@ export class RealFuzzer {
    * Check if a given input satisfies all preconditions.
    * If preconditions can't be evaluated, the input is allowed through.
    */
-  private checkPreconditions(preconditions: string[], input: unknown): boolean {
+  private checkPreconditions(
+    preconditions: string[],
+    input: unknown,
+    parameterNames: string[],
+  ): boolean {
     if (preconditions.length === 0) return true;
 
     for (const precondition of preconditions) {
       try {
-        // For multi-arg functions, 'input' is the array of args
-        const checkFn = new Function('input', `return (${precondition});`);
-        const passes = checkFn(input);
-        if (!passes) return false;
+        if (!evaluatePrecondition(precondition, input, parameterNames)) return false;
       } catch {
-        // If precondition can't be evaluated, allow the input
+        // Prose or otherwise unevaluable precondition (e.g. "values is number[]").
+        // Allow the input through rather than rejecting everything on a spec we
+        // can't run.
         continue;
       }
     }
@@ -499,12 +520,11 @@ export class RealFuzzer {
     output: unknown,
     input: unknown,
     duration_ms: number,
+    parameterNames: string[],
   ): FuzzViolation | null {
     for (const postcondition of postconditions) {
       try {
-        const checkFn = new Function('result', 'input', `return (${postcondition});`);
-        const passes = checkFn(output, input);
-        if (!passes) {
+        if (!evaluatePostcondition(postcondition, input, output, parameterNames)) {
           return {
             input,
             output,
@@ -514,7 +534,7 @@ export class RealFuzzer {
           };
         }
       } catch {
-        // If postcondition can't be evaluated, skip it
+        // Prose or otherwise unevaluable postcondition — skip it.
         continue;
       }
     }

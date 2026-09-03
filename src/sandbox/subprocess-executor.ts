@@ -241,6 +241,26 @@ export class SubprocessExecutor {
   }
 
   /**
+   * Serialize an input value into a JS literal for the runner, encoding values
+   * JSON cannot represent (NaN, Infinity, -Infinity, undefined) as sentinel
+   * tokens. Plain JSON.stringify turns NaN/Infinity into null and drops
+   * undefined, so the target function would be silently tested with the wrong
+   * input — defeating exactly the special-value edge cases the fuzzer relies on.
+   * The runner's reviveSpecials() restores them before calling the function.
+   */
+  private serializeInput(input: unknown): string {
+    return JSON.stringify(input, (_key, value) => {
+      if (value === undefined) return '__undefined__';
+      if (typeof value === 'number') {
+        if (Number.isNaN(value)) return '__NaN__';
+        if (value === Infinity) return '__Infinity__';
+        if (value === -Infinity) return '__NegInfinity__';
+      }
+      return value;
+    }) ?? '"__undefined__"';
+  }
+
+  /**
    * Build the runner .mjs script content.
    *
    * Handles both single-argument and multi-argument functions.
@@ -248,7 +268,7 @@ export class SubprocessExecutor {
    * Strips TypeScript syntax (type annotations, export keywords) for plain JS execution.
    */
   private buildRunnerScript(options: ExecuteOptions): string {
-    const inputJson = JSON.stringify(options.input);
+    const inputJson = this.serializeInput(options.input);
     const cleanCode = this.stripTypeScript(options.functionCode);
 
     return `// Auto-generated runner script
@@ -257,7 +277,23 @@ const fn = (() => {
   return ${options.functionName};
 })();
 
-const input = ${inputJson};
+// Restore values JSON can't represent (NaN/Infinity/-Infinity/undefined),
+// encoded as sentinel tokens by the parent, so the function is tested with the
+// real input rather than a lossy null.
+function reviveSpecials(v) {
+  if (v === '__NaN__') return NaN;
+  if (v === '__Infinity__') return Infinity;
+  if (v === '__NegInfinity__') return -Infinity;
+  if (v === '__undefined__') return undefined;
+  if (Array.isArray(v)) return v.map(reviveSpecials);
+  if (v && typeof v === 'object') {
+    const revived = {};
+    for (const key of Object.keys(v)) revived[key] = reviveSpecials(v[key]);
+    return revived;
+  }
+  return v;
+}
+const input = reviveSpecials(${inputJson});
 
 // Send the result back over the IPC channel so that anything the target
 // function writes to stdout (console.log, etc.) cannot corrupt the payload.
