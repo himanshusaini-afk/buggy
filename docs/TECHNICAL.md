@@ -90,7 +90,7 @@ The Buggy is a multi-agent system for autonomous code analysis, bug proving, and
 3. **SA-Fuzz (Specification-Aware Fuzzing)** — Generate inputs that violate postconditions
 4. **Proof Certificate Generation** — Construct a formal proof-of-failure certificate
 
-**Output**: `ProofOfFailureCertificate` with admissibility, soundness, and uniqueness properties.
+**Output**: `ProofOfFailureCertificate` with admissibility, soundness, and reproducibility properties.
 
 ### 3. Repair Agent (`RepairAgent`)
 
@@ -347,8 +347,8 @@ interface ProofOfFailureCertificate {
   function_id: string;          // Target function
   failure_class: string;        // Category of failure (null_deref, overflow, etc.)
   admissibility: boolean;       // Are preconditions satisfiable?
-  soundness: boolean;           // Does violation follow from preconditions?
-  uniqueness: boolean;          // Is this a single specific failure?
+  soundness: boolean;           // Does the output violate a postcondition?
+  reproducibility: boolean;     // Does the failure reproduce deterministically?
   triggering_input: unknown;    // Concrete input that triggers the bug
   execution_trace: string[];    // Steps leading to failure
   violated_postcondition: string; // Which postcondition was violated
@@ -373,13 +373,15 @@ interface ProofOfFailureCertificate {
 
 **Purpose**: Ensures the proof is logically valid. The bug isn't a fluke of one particular input — it follows from the function's logic applied to any valid precondition-satisfying state.
 
-#### 3. Uniqueness
+#### 3. Reproducibility
 
-**Definition**: The certificate identifies exactly one failure mode. Two certificates for the same function with different failure classes represent genuinely distinct bugs.
+**Definition**: The failure reproduces deterministically. Re-executing the function on the same triggering input reproduces the violation (in at least 2 of 3 re-runs), ruling out flakes, timing artifacts, and non-deterministic behavior.
 
-**Formally**: cert₁.failure_class ≠ cert₂.failure_class → cert₁ ≢ cert₂
+**Formally**: exec(f, σ) violates Post on repeated executions, not just once.
 
-**Purpose**: Prevents duplicate reporting and ensures each certificate maps to one actionable fix.
+**Purpose**: Ensures the certified failure is a stable property of the code, not a transient fluke.
+
+> **Formal vs. live third pillar.** The live `BugProvingAgent` (which fuzzes inputs) verifies **Reproducibility** as above. The formal `ProofVerifier` module instead verifies **Feasibility** — that a spec-satisfying output exists in a declared output domain (∃o′ . post(i, o′)) — proving the specification is achievable and the observed violation is a genuine code failure rather than an impossible spec. The live agent uses Reproducibility because it has no enumerated output domain to search.
 
 ---
 
@@ -660,7 +662,7 @@ Run full investigation pipeline.
     "failure_class": "arithmetic_underflow",
     "admissibility": true,
     "soundness": true,
-    "uniqueness": true
+    "reproducibility": true
   },
   "approved_patches": 2,
   "rejected_patches": 5,
