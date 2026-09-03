@@ -685,10 +685,29 @@ class DefaultFirecrackerApiClient implements FirecrackerApiClient {
  * In production, this executes actual ip/iptables commands.
  */
 class DefaultNetworkManager implements NetworkManager {
-  private subnetCounter = 0;
+  /** 10.0.0.0/24 holds 64 /30 subnets, addressable at indices 0..63. */
+  private static readonly MAX_SUBNETS = 64;
+  private nextIndex = 0;
+  /** Indices returned by releaseSubnet, available for reuse. */
+  private readonly freed: number[] = [];
+  private readonly inUse = new Set<number>();
 
   async allocateSubnet(): Promise<TapSubnetAllocation> {
-    const index = this.subnetCounter++;
+    // Reuse a released index before consuming a fresh one. Without reclamation
+    // the counter climbs unboundedly and baseOctet (4 * index) overflows past
+    // 255 after 64 allocations, producing invalid addresses like 10.0.0.258.
+    let index: number;
+    if (this.freed.length > 0) {
+      index = this.freed.pop()!;
+    } else if (this.nextIndex < DefaultNetworkManager.MAX_SUBNETS) {
+      index = this.nextIndex++;
+    } else {
+      throw new Error(
+        `No TAP subnets available: all ${DefaultNetworkManager.MAX_SUBNETS} /30 subnets in 10.0.0.0/24 are in use`
+      );
+    }
+    this.inUse.add(index);
+
     const baseOctet = 4 * index; // /30 subnets = 4 IPs each
     return {
       tapDevice: `tap${index}`,
@@ -704,10 +723,16 @@ class DefaultNetworkManager implements NetworkManager {
     // iptables -A FORWARD -i <tap> -d <host_gateway> -j ACCEPT
   }
 
-  async releaseSubnet(_allocation: TapSubnetAllocation): Promise<void> {
-    // In production: remove iptables rules and delete TAP device
-    // iptables -D FORWARD -i <tap> ...
-    // ip link delete <tap>
+  async releaseSubnet(allocation: TapSubnetAllocation): Promise<void> {
+    // Reclaim the /30 subnet index so its address range can be reused.
+    // In production this would also remove iptables rules and delete the TAP
+    // device (ip link delete <tap>).
+    const match = /^tap(\d+)$/.exec(allocation.tapDevice);
+    if (!match) return;
+    const index = Number(match[1]);
+    if (this.inUse.delete(index)) {
+      this.freed.push(index);
+    }
   }
 }
 
