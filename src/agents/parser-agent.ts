@@ -11,6 +11,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
+import { randomUUID } from 'node:crypto';
 import Parser from 'tree-sitter';
 import TypeScriptLanguage from 'tree-sitter-typescript';
 
@@ -48,6 +49,14 @@ const IDENTIFIER_NODE_TYPES = new Set([
 export class ParserAgent {
   private parser: Parser;
   private nodeCounter: number = 0;
+  /**
+   * Unique per-parse prefix for generated node IDs. Without it, IDs reset to
+   * node_1, node_2, ... on every parse, so nodes from different files (or
+   * re-parses of the same file) collide on nodes.id — which is a PRIMARY KEY in
+   * the shared graph database. The prefix keeps IDs globally unique while the
+   * counter preserves readable within-parse ordering.
+   */
+  private parseScopeId: string = randomUUID();
   private lspClient: LspClient | null = null;
 
   constructor(lspConfig?: LspClientConfig) {
@@ -104,6 +113,7 @@ export class ParserAgent {
    */
   parseIncremental(filePath: string, edit: TreeSitterEdit, newSource: string): ParseResult {
     this.nodeCounter = 0;
+    this.parseScopeId = randomUUID();
 
     const start = performance.now();
 
@@ -156,6 +166,7 @@ export class ParserAgent {
    */
   parseSource(source: string, filePath: string): ParseResult {
     this.nodeCounter = 0;
+    this.parseScopeId = randomUUID();
 
     const start = performance.now();
     const tree = this.parser.parse(source);
@@ -244,7 +255,7 @@ export class ParserAgent {
    * Generates a unique ID for each CST node using a monotonic counter.
    */
   private generateId(): string {
-    return `node_${++this.nodeCounter}`;
+    return `node_${this.parseScopeId}_${++this.nodeCounter}`;
   }
 
   /**
