@@ -222,26 +222,52 @@ describe('GraphWriter', () => {
   });
 
   describe('retry logic', () => {
-    it('should throw WriteExhaustedError after 3 failed retries', async () => {
-      // Insert a node, then try to insert the same node again (UNIQUE constraint violation)
+    it('throws the underlying constraint error immediately (no retry) on a deterministic failure', async () => {
+      // Insert a node, then try to insert the same id again (PRIMARY KEY violation).
       const node = makeNode({ id: 'duplicate' });
       await writer.writeNode(node);
 
-      // Attempting to insert the same node should trigger retries and then fail
-      await expect(writer.writeNode(node)).rejects.toThrow(WriteExhaustedError);
-    });
-
-    it('should include affected IDs in WriteExhaustedError', async () => {
-      const node = makeNode({ id: 'dup-id' });
-      await writer.writeNode(node);
-
+      const start = Date.now();
+      let caught: unknown;
       try {
         await writer.writeNode(node);
         expect.fail('Should have thrown');
       } catch (err) {
-        expect(err).toBeInstanceOf(WriteExhaustedError);
-        expect((err as WriteExhaustedError).affectedIds).toContain('dup-id');
+        caught = err;
       }
+      const elapsed = Date.now() - start;
+
+      // A constraint violation is deterministic: it must surface immediately with
+      // the real SQLite error, not be retried into a generic WriteExhaustedError.
+      expect(caught).not.toBeInstanceOf(WriteExhaustedError);
+      expect((caught as Error).message).toMatch(/constraint failed/i);
+      expect(elapsed).toBeLessThan(50); // no ~200ms retry sleep
+    });
+
+    it('retries transient (busy/locked) errors, then throws WriteExhaustedError with affected IDs', async () => {
+      // A DB whose writes always fail with a transient SQLITE_BUSY error.
+      let runCalls = 0;
+      const busyDb = {
+        prepare: () => ({
+          run: () => {
+            runCalls++;
+            const e = new Error('database is locked') as Error & { code: string };
+            e.code = 'SQLITE_BUSY';
+            throw e;
+          },
+        }),
+      } as unknown as Database.Database;
+      const busyWriter = new GraphWriter(busyDb);
+
+      try {
+        await busyWriter.writeNode(makeNode({ id: 'busy-id' }));
+        expect.fail('Should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(WriteExhaustedError);
+        expect((err as WriteExhaustedError).affectedIds).toContain('busy-id');
+      }
+      // Initial attempt + 2 retries = 3 invocations.
+      expect(runCalls).toBe(3);
     });
 
     it('should not retry ReferentialIntegrityError', async () => {

@@ -208,12 +208,21 @@ export class GraphWriter {
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
 
-        // Don't retry referential integrity errors — they won't resolve on retry
+        // Don't retry referential integrity errors — they won't resolve on retry.
         if (err instanceof ReferentialIntegrityError) {
           throw err;
         }
 
-        // On last attempt, don't sleep — just fall through to throw
+        // Only transient failures (a busy/locked database) can succeed on retry.
+        // A deterministic error — e.g. a PRIMARY KEY / UNIQUE constraint violation
+        // — fails identically every time, so retrying just burns ~200ms of
+        // blocking sleep and then buries the real cause inside a generic
+        // WriteExhaustedError. Surface it immediately with the underlying error.
+        if (!GraphWriter.isTransientError(err)) {
+          throw lastError;
+        }
+
+        // On last attempt, don't sleep — just fall through to throw.
         if (attempt < 2) {
           this.sleepSync(100);
         }
@@ -221,6 +230,21 @@ export class GraphWriter {
     }
 
     throw new WriteExhaustedError(affectedIds, lastError);
+  }
+
+  /**
+   * Whether a caught error is a transient SQLite failure that may succeed on
+   * retry (database busy/locked), as opposed to a deterministic error such as a
+   * constraint violation that will always fail the same way.
+   */
+  private static isTransientError(err: unknown): boolean {
+    const code = (err as { code?: unknown }).code;
+    return (
+      code === 'SQLITE_BUSY' ||
+      code === 'SQLITE_LOCKED' ||
+      code === 'SQLITE_BUSY_SNAPSHOT' ||
+      code === 'SQLITE_PROTOCOL'
+    );
   }
 
   /**

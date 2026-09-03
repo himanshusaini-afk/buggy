@@ -398,7 +398,7 @@ describe('Referential integrity rejection', () => {
   });
 });
 
-describe('Retry exhaustion reporting', () => {
+describe('Write error surfacing', () => {
   let db: Database.Database;
 
   beforeEach(() => {
@@ -409,40 +409,46 @@ describe('Retry exhaustion reporting', () => {
     db.close();
   });
 
-  it('should throw WriteExhaustedError after 3 failed retries', async () => {
+  it('surfaces a deterministic constraint violation immediately (no retry)', async () => {
     const writer = new GraphWriter(db);
 
-    // Insert the same node to cause a unique constraint violation on retry
+    // Insert the same node to cause a PRIMARY KEY violation on the second write.
     await writer.writeNode(makeNode({ id: 'dup-node' }));
 
-    // Trying to write the same node again will fail all 3 retries
+    // A constraint violation is deterministic — it must surface immediately with
+    // the real SQLite error, not be retried into a generic WriteExhaustedError.
     await expect(
       writer.writeNode(makeNode({ id: 'dup-node' }))
-    ).rejects.toThrow(WriteExhaustedError);
+    ).rejects.toThrow(/constraint failed/i);
   });
 
-  it('should include affected node IDs in WriteExhaustedError', async () => {
+  it('does not wrap a deterministic constraint violation in WriteExhaustedError', async () => {
     const writer = new GraphWriter(db);
     await writer.writeNode(makeNode({ id: 'existing-node' }));
 
+    let caught: unknown;
     try {
       await writer.writeNode(makeNode({ id: 'existing-node' }));
+      expect.fail('Should have thrown');
     } catch (err) {
-      expect(err).toBeInstanceOf(WriteExhaustedError);
-      expect((err as WriteExhaustedError).affectedIds).toContain('existing-node');
+      caught = err;
     }
+    expect(caught).not.toBeInstanceOf(WriteExhaustedError);
   });
 
-  it('should preserve the original cause in WriteExhaustedError', async () => {
+  it('preserves the underlying SQLite error (with its code) on a deterministic failure', async () => {
     const writer = new GraphWriter(db);
     await writer.writeNode(makeNode({ id: 'cause-node' }));
 
+    let caught: { code?: unknown } | undefined;
     try {
       await writer.writeNode(makeNode({ id: 'cause-node' }));
+      expect.fail('Should have thrown');
     } catch (err) {
-      expect(err).toBeInstanceOf(WriteExhaustedError);
-      expect((err as WriteExhaustedError).cause).toBeDefined();
+      caught = err as { code?: unknown };
     }
+    // The real SQLite constraint error is surfaced, not masked behind a wrapper.
+    expect(String(caught?.code ?? '')).toMatch(/^SQLITE_CONSTRAINT/);
   });
 });
 
