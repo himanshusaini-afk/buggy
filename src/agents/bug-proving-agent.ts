@@ -23,7 +23,7 @@ import {
   type SpecificationAssertion,
 } from './difftestgen.js';
 import { RealFuzzer, type FuzzTarget, type FuzzConfig, type FuzzReport } from './real-fuzzer.js';
-import { SubprocessExecutor } from '../sandbox/subprocess-executor.js';
+import { SubprocessExecutor, type ExecuteResult } from '../sandbox/subprocess-executor.js';
 import type { SourceLocation } from '../types/graph.js';
 import type { InvestigationTarget } from '../types/orchestrator.js';
 import type { ProofOfFailureCertificate } from '../types/proof.js';
@@ -145,6 +145,41 @@ export class BugProvingAgent {
     const admissible = this.checkAdmissibility(target.preconditions, violation.input);
     if (!admissible) return null;
 
+    // Determinism violations are special: "the function must be deterministic"
+    // is a human-readable string, not a JS postcondition. Feeding it to
+    // outputViolatesPostcondition throws (caught → false), so every determinism
+    // bug the fuzzer finds was silently dropped at certification. Verify it the
+    // only way that makes sense — by observing that repeated executions on the
+    // same input do not all agree.
+    if (violation.oracleType === 'determinism') {
+      const detExecutor = new SubprocessExecutor({ timeout: 3000 });
+      const detResults = await detExecutor.executeMultiple(
+        {
+          functionCode: target.sourceCode,
+          functionName: target.functionName,
+          input: violation.input,
+          timeout: 3000,
+        },
+        5,
+      );
+      detExecutor.cleanup();
+
+      // Reproduced non-determinism (more than one distinct outcome) confirms both
+      // soundness and uniqueness for this class; otherwise we could not reproduce
+      // it, so we do not certify.
+      if (!this.outputsVary(detResults)) return null;
+
+      const certifiedAt = new Date().toISOString();
+      return {
+        test_input: violation.input,
+        observed_output: violation.output,
+        violated_postcondition: violation.violatedPostcondition,
+        admissibility_verified_at: now,
+        soundness_verified_at: certifiedAt,
+        uniqueness_verified_at: certifiedAt,
+      };
+    }
+
     // Soundness: confirm the postcondition is actually violated
     const executor = new SubprocessExecutor({ timeout: 3000 });
     const rerunResult = await executor.execute({
@@ -232,6 +267,25 @@ export class BugProvingAgent {
       }
     }
     return true;
+  }
+
+  /**
+   * Returns true if the executions produced more than one distinct outcome,
+   * i.e. the function did not behave deterministically. Used to confirm
+   * determinism violations, which have no expressible JS postcondition form.
+   */
+  private outputsVary(results: ExecuteResult[]): boolean {
+    const outcomes = new Set<string>();
+    for (const r of results) {
+      if (r.success) {
+        outcomes.add('ok:' + JSON.stringify(r.output ?? null));
+      } else if (r.timedOut) {
+        outcomes.add('timeout');
+      } else if (r.crashed) {
+        outcomes.add('crash:' + (r.exceptionType ?? ''));
+      }
+    }
+    return outcomes.size > 1;
   }
 
   /**

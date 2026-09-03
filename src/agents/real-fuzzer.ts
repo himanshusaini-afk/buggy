@@ -78,12 +78,15 @@ export class RealFuzzer {
       if (totalAttempts >= this.config.maxAttempts) break;
       if (violations.length > 0) break; // Stop at first violation
 
-      totalAttempts++;
-
-      // Check preconditions — skip inputs that violate them
+      // Check preconditions — skip inputs that violate them. Precondition-filtered
+      // inputs must NOT consume the budget: counting them here would let a strict
+      // precondition exhaust maxAttempts after only a handful of real executions,
+      // sharply weakening coverage (missed bugs). Only executed inputs are counted.
       if (!this.checkPreconditions(target.preconditions, input)) {
         continue;
       }
+
+      totalAttempts++;
 
       // Execute the function
       const result = await this.executor.execute({

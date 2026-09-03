@@ -325,9 +325,21 @@ export class SnapshotPool {
    */
   private async fillPool(runtime: string): Promise<void> {
     const entries = this.pool.get(runtime) ?? [];
-    const needed = this.config.minPoolSize - entries.length;
+    // Ensure the map holds this exact array so concurrent restores (which shift
+    // from the pooled array) and this fill operate on the same reference.
+    this.pool.set(runtime, entries);
 
-    for (let i = 0; i < needed; i++) {
+    // Refill until the pool reaches minPoolSize, re-reading the live length each
+    // iteration instead of caching a `needed` count up front. This matters under
+    // concurrency: if two restores each consume a snapshot, the second one's
+    // replenishment request is dropped (a fill is already in progress), and a
+    // cached `needed` would refill only one — leaving the pool below minimum.
+    // Re-checking the length lets the in-flight fill absorb both. A bounded
+    // attempt count prevents an infinite loop if createSnapshot keeps failing.
+    let attempts = 0;
+    const maxAttempts = this.config.minPoolSize * 2 + 1;
+    while (entries.length < this.config.minPoolSize && attempts < maxAttempts) {
+      attempts++;
       try {
         const snapshot = await this.createSnapshot(runtime);
         entries.push(snapshot);
@@ -338,8 +350,6 @@ export class SnapshotPool {
         });
       }
     }
-
-    this.pool.set(runtime, entries);
   }
 
   /**
