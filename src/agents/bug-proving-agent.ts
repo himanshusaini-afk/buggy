@@ -83,8 +83,15 @@ export class BugProvingAgent {
    * 4. If a violation is found, verify the proof:
    *    - Admissibility: re-check preconditions on the triggering input
    *    - Soundness: confirm the output violates the postcondition
-   *    - Uniqueness: re-execute 3 times, confirm same failure
+   *    - Reproducibility: re-execute 3 times, confirm the same failure reproduces
    * 5. Return certified proof or unconfirmed
+   *
+   * Note: this real-execution path verifies Reproducibility as its third pillar
+   * (a deterministic, repeatable failure). That is distinct from the formal
+   * ProofVerifier, whose third pillar is Feasibility (a spec-satisfying output
+   * exists in a declared output domain). This agent has no output domain, so it
+   * proves the failure is genuine by reproducing it rather than by exhibiting a
+   * correct alternative.
    */
   async investigate(target: InvestigationTarget): Promise<BugProvingResult> {
     // Step 1: Extract function source code
@@ -135,7 +142,7 @@ export class BugProvingAgent {
    * Three checks:
    * - Admissibility: input satisfies all preconditions
    * - Soundness: output genuinely violates the postcondition
-   * - Uniqueness: same failure reproduces consistently
+   * - Reproducibility: the same failure reproduces consistently across re-runs
    */
   private async verifyAndCertify(
     target: FuzzTarget,
@@ -171,8 +178,8 @@ export class BugProvingAgent {
       detExecutor.cleanup();
 
       // Reproduced non-determinism (more than one distinct outcome) confirms both
-      // soundness and uniqueness for this class; otherwise we could not reproduce
-      // it, so we do not certify.
+      // soundness and reproducibility for this class; otherwise we could not
+      // reproduce it, so we do not certify.
       if (!this.outputsVary(detResults)) return null;
 
       const certifiedAt = new Date().toISOString();
@@ -215,8 +222,8 @@ export class BugProvingAgent {
       return null;
     }
 
-    // Uniqueness: run 3 more times, confirm same failure
-    const uniquenessResults = await executor.executeMultiple(
+    // Reproducibility: run 3 more times and confirm the same failure reproduces.
+    const reproducibilityResults = await executor.executeMultiple(
       {
         functionCode: target.sourceCode,
         functionName: target.functionName,
@@ -227,12 +234,12 @@ export class BugProvingAgent {
     );
     executor.cleanup();
 
-    let uniquenessCount = 0;
-    for (const result of uniquenessResults) {
+    let reproducedCount = 0;
+    for (const result of reproducibilityResults) {
       if (violation.oracleType === 'crash' && result.crashed) {
-        uniquenessCount++;
+        reproducedCount++;
       } else if (violation.oracleType === 'timeout' && result.timedOut) {
-        uniquenessCount++;
+        reproducedCount++;
       } else if (result.success) {
         const violates = this.outputViolatesPostcondition(
           violation.violatedPostcondition,
@@ -240,12 +247,12 @@ export class BugProvingAgent {
           violation.input,
           target.parameterNames,
         );
-        if (violates) uniquenessCount++;
+        if (violates) reproducedCount++;
       }
     }
 
-    // Require at least 2 out of 3 reproductions for uniqueness
-    if (uniquenessCount < 2) return null;
+    // Require at least 2 out of 3 reproductions to consider the failure reproducible.
+    if (reproducedCount < 2) return null;
 
     const certifiedAt = new Date().toISOString();
 

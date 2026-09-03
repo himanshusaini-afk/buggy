@@ -702,7 +702,7 @@ If no preconditions are specified, all inputs are considered admissible.
 
 The observed output is re-evaluated against the violated postcondition to confirm the violation is genuine. This double-check catches edge cases in the oracle logic itself.
 
-#### 3. Uniqueness Check
+#### 3. Reproducibility Check
 
 > Does the same failure reproduce deterministically?
 
