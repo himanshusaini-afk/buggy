@@ -163,9 +163,15 @@ export class ClassifierAgent {
       }
     }
 
-    // Categorize original nodes into Del or Remain
+    // Categorize original nodes into Del or Remain.
+    // Edit-operation locations use 1-indexed source lines (start_line), while
+    // Tree-sitter CST rows are 0-indexed. Normalize the CST row to a 1-indexed
+    // line before comparing; otherwise the keys never match, `del` stays empty
+    // for every delete/replace patch, and the classifier under-counts deletions
+    // — biasing the overfitting score DOWN and toward APPROVING overfit patches.
     for (const node of originalNodes) {
-      const nodeKey = `${node.type}:${patch.target_file}:${node.start_position.row}`;
+      const nodeLine = node.start_position.row + 1;
+      const nodeKey = `${node.type}:${patch.target_file}:${nodeLine}`;
       if (deletedNodeTypes.has(nodeKey)) {
         del.push(node);
       } else {
@@ -173,7 +179,9 @@ export class ClassifierAgent {
       }
     }
 
-    // Generate synthetic Gen nodes from insert operations
+    // Generate synthetic Gen nodes from insert operations. Convert the 1-indexed
+    // edit-op line back to a 0-indexed CST row so these synthetic nodes carry the
+    // same coordinate convention as real CST nodes.
     for (const op of patch.edit_operations) {
       if (op.type === 'insert' || op.type === 'replace') {
         gen.push({
@@ -181,8 +189,8 @@ export class ClassifierAgent {
           type: op.node_type,
           start_byte: 0,
           end_byte: 0,
-          start_position: { row: op.location.start_line, column: op.location.start_column },
-          end_position: { row: op.location.end_line, column: op.location.end_column },
+          start_position: { row: Math.max(0, op.location.start_line - 1), column: op.location.start_column },
+          end_position: { row: Math.max(0, op.location.end_line - 1), column: op.location.end_column },
           children: [],
           is_error: false,
         });

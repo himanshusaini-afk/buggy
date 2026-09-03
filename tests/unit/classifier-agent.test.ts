@@ -83,7 +83,8 @@ describe('ClassifierAgent', () => {
         id: 'root',
         type: 'program',
         children: [
-          createTestNode({ id: 'n1', type: 'if_statement', start_position: { row: 2, column: 0 } }),
+          // 0-indexed CST row 1 == 1-indexed source line 2 (the delete op's start_line).
+          createTestNode({ id: 'n1', type: 'if_statement', start_position: { row: 1, column: 0 } }),
           createTestNode({ id: 'n2', type: 'expression_statement', start_position: { row: 5, column: 0 } }),
         ],
       });
@@ -105,7 +106,7 @@ describe('ClassifierAgent', () => {
 
       const result = agent.extractEditStates(patch, original);
 
-      // The if_statement at row 2 should be in del
+      // The if_statement on source line 2 (0-indexed row 1) should be in del
       expect(result.del.length).toBeGreaterThan(0);
       expect(result.del.some(n => n.type === 'if_statement')).toBe(true);
       // The insert generates a gen node
