@@ -756,6 +756,7 @@ The debugger exposes all its capabilities as MCP tools over stdio transport, all
 | `buggy_status` | Check investigation progress |
 | `buggy_query_graph` | Query the semantic graph (callees, nodes, file graph) |
 | `buggy_list_functions` | List all function declarations in a file |
+| `buggy_recall` | Recall prior watchlist lessons (what worked / what failed) before editing or fixing code |
 
 ---
 

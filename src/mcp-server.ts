@@ -174,6 +174,42 @@ const TOOLS = [
       required: ['file_path'],
     },
   },
+  {
+    name: 'buggy_recall',
+    description:
+      'Recall relevant prior lessons from the Watchlist experience memory BEFORE writing or fixing code. Returns proof-backed lessons (what worked, what failed and how) from this project, plus generalized lessons corroborated across your other projects. Consult this before editing a risky function so you reuse fixes that worked and avoid approaches that were rejected.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        function_id: {
+          type: 'string',
+          description: 'The function you are about to edit or fix',
+        },
+        file_path: {
+          type: 'string',
+          description: 'File containing the function (absolute or relative to project_path)',
+        },
+        failure_class: {
+          type: 'string',
+          description:
+            'Optional failure category filter (e.g. division_by_zero, negative_or_underflow, null_or_undefined)',
+        },
+        defect_class: {
+          type: 'string',
+          description: 'Optional coarse defect category filter (e.g. arithmetic, null_safety, bounds)',
+        },
+        project_path: {
+          type: 'string',
+          description: 'Project root directory (uses current directory if omitted)',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of lessons to return (default 10)',
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 // ─── Tool Handlers ───────────────────────────────────────────────────────────
@@ -360,6 +396,37 @@ async function handleStatus(args: Record<string, unknown>): Promise<ToolResult> 
     });
   } catch (err) {
     return error(`Status query failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function handleRecall(args: Record<string, unknown>): Promise<ToolResult> {
+  const projectPath = (args.project_path as string) || process.cwd();
+
+  try {
+    const instance = await getDebuggerInstance(projectPath);
+    const result = instance.recall({
+      function_id: args.function_id as string | undefined,
+      file_path: args.file_path as string | undefined,
+      failure_class: args.failure_class as string | undefined,
+      defect_class: args.defect_class as string | undefined,
+      limit: typeof args.limit === 'number' ? (args.limit as number) : undefined,
+    });
+    const stats = instance.watchlistStats();
+
+    return success({
+      seen_before: result.seen_before,
+      lesson_count: result.lessons.length,
+      lessons: result.lessons,
+      memory: {
+        total_episodes: stats.total_episodes,
+        verified_episodes: stats.verified_episodes,
+        distinct_lessons: stats.distinct_lessons,
+        global_corroborated: stats.global_corroborated,
+        top_recurring: stats.top_recurring,
+      },
+    });
+  } catch (err) {
+    return error(`Recall failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -588,6 +655,10 @@ async function main(): Promise<void> {
 
       case 'buggy_list_functions':
         result = await handleListFunctions(toolArgs);
+        break;
+
+      case 'buggy_recall':
+        result = await handleRecall(toolArgs);
         break;
 
       default:

@@ -21,6 +21,7 @@ import type { PatchCandidate } from '../types/repair.js';
 import type { ClassificationResult } from '../types/classifier.js';
 import type { ExecutionRequest, ExecutionResult } from '../types/sandbox.js';
 import type { ParseResult, CstNode } from '../types/cst.js';
+import type { EpisodeRecorder } from '../types/watchlist.js';
 
 /** Maximum number of patches routed through the Classifier_Agent per investigation. */
 const MAX_PATCHES_PER_INVESTIGATION = 20;
@@ -130,6 +131,7 @@ interface InvestigationState {
  */
 export class AgentOrchestrator {
   private deps: OrchestratorDeps;
+  private recorder?: EpisodeRecorder;
   private investigations: Map<string, InvestigationState> = new Map();
   private activeSandboxRequests = 0;
   private sandboxQueue: Array<{
@@ -138,8 +140,15 @@ export class AgentOrchestrator {
     request: ExecutionRequest;
   }> = [];
 
-  constructor(deps: OrchestratorDeps) {
+  /**
+   * @param deps - Injected agent dependencies.
+   * @param recorder - Optional watchlist recorder. When provided, every
+   *   finalized investigation is written to the experience memory. Omitting it
+   *   (as the unit tests do) disables recording with zero behavioral change.
+   */
+  constructor(deps: OrchestratorDeps, recorder?: EpisodeRecorder) {
     this.deps = deps;
+    this.recorder = recorder;
   }
 
   /**
@@ -519,7 +528,7 @@ export class AgentOrchestrator {
       status = 'confirmed_no_repair';
     }
 
-    return {
+    const report: InvestigationReport = {
       id: state.id,
       status,
       proof: state.report.proof,
@@ -528,6 +537,31 @@ export class AgentOrchestrator {
       intermediate_results: state.status.intermediate_results,
       timeline: state.timeline,
     };
+
+    this.recordEpisode(state, report);
+    return report;
+  }
+
+  /**
+   * Hand the finalized investigation to the watchlist recorder, if one is
+   * configured. This is the single convergence point every outcome flows
+   * through, and it passes the full {@link InvestigationState} so the recorder
+   * can capture `state.failure` — the "how it failed" detail that the returned
+   * {@link InvestigationReport} does not carry. Recording is best-effort and
+   * must never affect the investigation result.
+   */
+  private recordEpisode(state: InvestigationState, report: InvestigationReport): void {
+    if (!this.recorder) return;
+    try {
+      this.recorder.record({
+        investigationId: state.id,
+        target: state.target,
+        report,
+        failure: state.failure,
+      });
+    } catch {
+      // Memory recording is a non-fatal side-channel.
+    }
   }
 
   private countNodes(node: CstNode): number {

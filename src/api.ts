@@ -24,7 +24,7 @@
  */
 
 import { resolve, extname } from 'node:path';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import type Database from 'better-sqlite3';
 
 import { loadConfig, ConfigError } from './config/config-loader.js';
@@ -32,13 +32,21 @@ import { initializeDatabase } from './database/graph-db.js';
 import { GraphQueries } from './database/graph-queries.js';
 import { ParserAgent } from './agents/parser-agent.js';
 import { BugProvingAgent } from './agents/bug-proving-agent.js';
+import { RepairAgent } from './agents/repair-agent.js';
+import { ClassifierAgent } from './agents/classifier-agent.js';
+import { McpRouter } from './middleware/mcp-router.js';
 import { AgentOrchestrator } from './orchestrator/orchestrator.js';
 import type { OrchestratorDeps } from './orchestrator/orchestrator.js';
+import { WatchlistRecorder } from './watchlist/watchlist-recorder.js';
+import { WatchlistStore } from './watchlist/watchlist-store.js';
+import type { RecallCriteria, RecallResult, WatchlistStats } from './types/watchlist.js';
 import type { DebuggerConfig } from './types/config.js';
 import type { ParseResult } from './types/cst.js';
 import type { InvestigationReport, InvestigationStatus, InvestigationTarget } from './types/orchestrator.js';
 import type { NodeRecord, EdgeRecord } from './types/graph.js';
-import type { FunctionSpec } from './types/repair.js';
+import type { DefectContext, FunctionSpec, VariableState } from './types/repair.js';
+import type { ProofOfFailureCertificate } from './types/proof.js';
+import type { McpToolResult } from './types/mcp.js';
 
 // ─── Public Types ────────────────────────────────────────────────────────────
 
@@ -109,6 +117,8 @@ export class ProofDebugger {
   private graphQueries: GraphQueries | null = null;
   private parserAgent: ParserAgent | null = null;
   private orchestrator: AgentOrchestrator | null = null;
+  private watchlistRecorder: WatchlistRecorder | null = null;
+  private watchlistStore: WatchlistStore | null = null;
   private initialized = false;
 
   constructor(options: ProofDebuggerOptions) {
@@ -160,10 +170,21 @@ export class ProofDebugger {
       initializationOptions: this.config.lsp.initialization_options,
     });
 
+    // Initialize the experience-memory recorder (Watchlist). It shares the
+    // project graph DB for local episodes and writes team/global steering
+    // files according to the configured scope (defaults to 'layered').
+    this.watchlistRecorder = new WatchlistRecorder(this.db, {
+      projectRoot: this.options.projectRoot,
+      scope: this.config.watchlist?.scope,
+      enabled: this.config.watchlist?.enabled,
+      language: this.config.language,
+    });
+    this.watchlistStore = new WatchlistStore(this.db);
+
     // Initialize orchestrator with agent stubs
     // In production, these would be fully initialized agents
     const deps = this.buildOrchestratorDeps();
-    this.orchestrator = new AgentOrchestrator(deps);
+    this.orchestrator = new AgentOrchestrator(deps, this.watchlistRecorder);
 
     this.initialized = true;
   }
@@ -230,6 +251,32 @@ export class ProofDebugger {
   halt(id: string): void {
     this.ensureInitialized();
     this.orchestrator!.halt(id);
+  }
+
+  /**
+   * Recall relevant prior lessons from the watchlist for code you are about to
+   * write or fix. Merges the project-local tier with the cross-project global
+   * tier, with project lessons taking precedence on conflict.
+   *
+   * @param criteria - What you know about the target (function, file, class).
+   * @returns Ranked lessons plus whether this exact target was seen before.
+   */
+  recall(criteria: RecallCriteria): RecallResult {
+    this.ensureInitialized();
+    const resolved: RecallCriteria = { ...criteria };
+    if (criteria.file_path) {
+      resolved.file_path = this.resolvePath(criteria.file_path);
+    }
+    return this.watchlistStore!.recall(resolved);
+  }
+
+  /**
+   * Aggregate watchlist metrics — episode counts by outcome, the most-recurring
+   * lessons (a proxy for whether fixes are sticking), and global coverage.
+   */
+  watchlistStats(): WatchlistStats {
+    this.ensureInitialized();
+    return this.watchlistStore!.stats();
   }
 
   /**
@@ -307,6 +354,8 @@ export class ProofDebugger {
 
     this.graphQueries = null;
     this.orchestrator = null;
+    this.watchlistRecorder = null;
+    this.watchlistStore = null;
     this.config = null;
     this.initialized = false;
   }
@@ -334,6 +383,15 @@ export class ProofDebugger {
   private buildOrchestratorDeps(): OrchestratorDeps {
     const parserAgent = this.parserAgent!;
 
+    // Real repair + classifier agents (replacing the earlier stubs).
+    // The repair agent works through an MCP router whose read_range is a
+    // read-only filesystem reader and whose write_fix is a deliberate NO-OP,
+    // so investigations generate candidate patches WITHOUT ever mutating the
+    // user's source files. The classifier is pure in-memory AST analysis over
+    // the parsed CST (its only side effect is a harmless patches-table update).
+    const repairAgent = new RepairAgent(this.buildRepairRouter());
+    const classifierAgent = new ClassifierAgent(this.db!);
+
     return {
       parserAgent: {
         parseFile: (filePath: string) => parserAgent.parseFile(filePath),
@@ -359,14 +417,11 @@ export class ProofDebugger {
         },
       },
       repairAgent: {
-        generatePatches: async (_proof, _target) => {
-          return [];
-        },
+        generatePatches: (proof, target) =>
+          repairAgent.generatePatches(proof, this.buildDefectContext(proof, target)),
       },
       classifierAgent: {
-        classify: async (_patch, _original) => {
-          return { approved: false, overfitting_probability: 1, patch_id: '' };
-        },
+        classify: (patch, original) => classifierAgent.classify(patch, original),
       },
       sandboxAgent: {
         execute: async (_request) => {
@@ -386,6 +441,144 @@ export class ProofDebugger {
       },
     };
   }
+
+  /**
+   * Build an MCP router for the RepairAgent. `read_range` reads the real source
+   * file (read-only); `write_fix` is a deliberate NO-OP so patch generation
+   * never edits the user's source during an investigation; `extract_method`
+   * returns empty context (only used for supplementary context, not required).
+   * None of these handlers touch the sandbox.
+   */
+  private buildRepairRouter(): McpRouter {
+    const router = new McpRouter();
+
+    router.registerTool({
+      name: 'read_range',
+      description: 'Read a range of lines from a source file (read-only).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          file_path: { type: 'string' },
+          start_line: { type: 'integer' },
+          end_line: { type: 'integer' },
+        },
+        required: ['file_path', 'start_line', 'end_line'],
+      },
+      handler: async (params: unknown): Promise<McpToolResult> => {
+        const { file_path, start_line, end_line } = params as {
+          file_path: string;
+          start_line: number;
+          end_line: number;
+        };
+        try {
+          const allLines = readFileSync(file_path, 'utf-8').split('\n');
+          const from = Math.max(0, start_line - 1);
+          const to = Math.min(allLines.length, Math.max(from, end_line));
+          return { success: true, data: { lines: allLines.slice(from, to) } };
+        } catch {
+          // Non-fatal: the agent falls back to empty content.
+          return { success: true, data: { lines: [] } };
+        }
+      },
+    });
+
+    router.registerTool({
+      name: 'extract_method',
+      description: 'Extract a method body for supplementary context.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          file_path: { type: 'string' },
+          method_name: { type: 'string' },
+        },
+        required: ['file_path', 'method_name'],
+      },
+      handler: async (): Promise<McpToolResult> => ({ success: true, data: { content: '' } }),
+    });
+
+    router.registerTool({
+      name: 'write_fix',
+      description: 'No-op: investigations never write candidate patches to source files.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          file_path: { type: 'string' },
+          start_line: { type: 'integer' },
+          end_line: { type: 'integer' },
+          new_content: { type: 'string' },
+        },
+        required: ['file_path', 'start_line', 'end_line', 'new_content'],
+      },
+      handler: async (): Promise<McpToolResult> => ({
+        success: true,
+        data: { written: false, noop: true },
+      }),
+    });
+
+    return router;
+  }
+
+  /**
+   * Translate the orchestrator's `(proof, target)` into the `DefectContext` the
+   * RepairAgent expects. The proof carries no line number, so the defect line is
+   * located by finding the function in its source (falling back to line 1), and
+   * variable states are derived from the proof's triggering input.
+   */
+  private buildDefectContext(
+    proof: ProofOfFailureCertificate,
+    target: InvestigationTarget
+  ): DefectContext {
+    const defectLine = this.locateDefectLine(target);
+    return {
+      defect_line: defectLine,
+      file_path: target.file_path,
+      context_window: {
+        start_line: Math.max(1, defectLine - 10),
+        end_line: defectLine + 10,
+      },
+      variable_states: deriveVariableStates(proof.test_input),
+      specification: target.specification,
+    };
+  }
+
+  /**
+   * Best-effort location of the target function's line within its source file.
+   * Falls back to line 1 if the file can't be read or the name isn't found.
+   */
+  private locateDefectLine(target: InvestigationTarget): number {
+    const name = target.specification?.name || target.function_id;
+    if (!name) return 1;
+    try {
+      const lines = readFileSync(target.file_path, 'utf-8').split('\n');
+      const pattern = new RegExp(`\\b${escapeRegExp(name)}\\b`);
+      for (let i = 0; i < lines.length; i++) {
+        if (pattern.test(lines[i])) return i + 1;
+      }
+    } catch {
+      // ignore — fall back to line 1
+    }
+    return 1;
+  }
+}
+
+/**
+ * Derive variable states from a proof's triggering input. When the input is a
+ * plain object, each key becomes a named variable; otherwise there are none.
+ */
+function deriveVariableStates(testInput: unknown): VariableState[] {
+  if (testInput === null || typeof testInput !== 'object' || Array.isArray(testInput)) {
+    return [];
+  }
+  return Object.entries(testInput as Record<string, unknown>).map(([name, value]) => ({
+    name,
+    value,
+    type: typeof value,
+  }));
+}
+
+/** Escape a string for safe use inside a RegExp. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export default ProofDebugger;

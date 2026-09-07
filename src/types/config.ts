@@ -11,6 +11,22 @@ export interface DebuggerConfig {
   oracles: OracleConfig;
   probe: ProbeConfig;
   plugs?: PlugConfig;
+  watchlist?: WatchlistConfig;
+}
+
+/**
+ * Experience-memory ("watchlist") configuration.
+ *
+ * `scope` controls how far lessons travel:
+ *  - `local`   — raw episodes only, stored in this project's `.debugger/` DB.
+ *  - `team`    — also write verified lessons to `.kiro/steering/buggy-watchlist.md`.
+ *  - `global`  — also promote generalized, sanitized lessons (corroborated across
+ *                ≥2 projects) to the user-level store shared by all your projects.
+ *  - `layered` — all of the above (default).
+ */
+export interface WatchlistConfig {
+  enabled: boolean;
+  scope: 'local' | 'team' | 'global' | 'layered';
 }
 
 export interface ParserConfig {

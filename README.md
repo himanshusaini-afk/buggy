@@ -23,7 +23,7 @@ Buggy now works automatically inside Kiro — your team doesn't need to run comm
 
 ### How It Works
 
-Buggy ships with 6 Kiro hooks that fire on IDE events. When a hook triggers, Kiro's agent calls Buggy's MCP tools behind the scenes, interprets the results, and either reports findings or applies fixes automatically.
+Buggy ships with 7 Kiro hooks that fire on IDE events. When a hook triggers, Kiro's agent calls Buggy's MCP tools behind the scenes, interprets the results, and either reports findings or applies fixes automatically.
 
 ### Hooks (Automatic Bug Detection)
 
@@ -35,9 +35,11 @@ Buggy ships with 6 Kiro hooks that fire on IDE events. When a hook triggers, Kir
 | `buggy-auto-fix` | Agent completes work | Self-healing loop — re-checks and fixes (max 3 iterations) |
 | `buggy-deep-scan` | User-triggered | Full project scan across all source files |
 | `buggy-spec-evolution` | After task completion | Verifies new implementations match specifications |
+| `buggy-recall-first` | Code-change request submitted | Consults the Watchlist memory (`buggy_recall`) before editing so proven lessons guide the fix |
 
 ### What Developers Experience
 
+- Ask Kiro to fix something → it first recalls what worked and what failed on that code before
 - Save a file → bugs are surfaced in seconds, no command needed
 - Kiro writes code → Buggy verifies it before you even review
 - Start a spec task → risky files are pre-scanned for existing issues
@@ -54,7 +56,7 @@ git commit -m "Add Buggy hooks and steering files for automatic bug detection"
 
 ### Steering Files (Advanced Workflows)
 
-Buggy includes 8 steering files that guide Kiro's behavior during debugging workflows. Four are always active (cross-file impact analysis, bug trend tracking, onboarding warnings, core debugging workflow), and four activate on demand for PR reviews, git-diff analysis, spec inference, and TypeScript type narrowing suggestions.
+Buggy includes 9 steering files that guide Kiro's behavior during debugging workflows. Five are always active (cross-file impact analysis, bug trend tracking, onboarding warnings, core debugging workflow, and the watchlist experience memory), and four activate on demand for PR reviews, git-diff analysis, spec inference, and TypeScript type narrowing suggestions.
 
 See the [Usage Guide](docs/USAGE-GUIDE.md) for the full list and customization options.
 

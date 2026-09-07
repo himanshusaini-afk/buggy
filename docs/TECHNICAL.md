@@ -166,7 +166,7 @@ All tools enforce:
 
 #### External MCP Server
 
-6 tools exposed to IDE clients:
+7 tools exposed to IDE clients:
 
 | Tool | Description |
 |------|-------------|
@@ -176,6 +176,7 @@ All tools enforce:
 | `buggy_status` | Get investigation status |
 | `buggy_query_graph` | Query the semantic graph |
 | `buggy_list_functions` | List all functions in a file |
+| `buggy_recall` | Recall prior watchlist lessons before editing/fixing code |
 
 ### Message Flow
 

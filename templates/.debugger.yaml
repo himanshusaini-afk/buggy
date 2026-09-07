@@ -71,6 +71,21 @@ probe:
   # Maximum iterations for refining a single property
   max_refinement_iterations: 10
 
+# ─── Watchlist (Experience Memory) ───────────────────────────
+# Records what worked / what failed after every investigation and distills
+# verified, proof-backed lessons so future runs — and Kiro — improve over time.
+watchlist:
+  # Master on/off switch.
+  enabled: true
+  # How far lessons travel:
+  #   local   - raw episodes only, in this project's .debugger/ database
+  #   team    - also write verified lessons to .kiro/steering/buggy-watchlist.md
+  #             (committed, shared with teammates on this repo)
+  #   global  - also promote generalized, sanitized lessons corroborated across
+  #             >=2 of your projects to ~/.buggy/ + ~/.kiro/steering (all projects)
+  #   layered - all of the above (recommended)
+  scope: layered
+
 # ─── Plugs (Optional) ────────────────────────────────────────
 # Custom plug-ins to override default agent behavior.
 # Each plug is a path to a module exporting the required interface.

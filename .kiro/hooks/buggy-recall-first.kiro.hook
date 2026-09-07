@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Buggy Recall-First",
+  "description": "Before Kiro fixes or modifies code, it consults the Watchlist experience memory (buggy_recall) for prior proven lessons on the target function — reusing fixes that worked and avoiding approaches that were rejected as overfit. This closes the learning loop: past investigations inform future edits.",
+  "version": "1",
+  "when": {
+    "type": "userPromptSubmit"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Before acting on this request, decide whether the user is asking to fix, change, refactor, debug, or add code to a specific function or file. If they are NOT (e.g. it's a question, explanation, or planning), do nothing and proceed normally.\n\nIf they ARE, consult the project's experience memory BEFORE proposing or writing any changes:\n\n1. Identify the target function(s) and file(s) from the request and the current editor context.\n2. If the buggy MCP server is available, call buggy_recall for each target — pass function_id and/or file_path, plus failure_class or defect_class if the request hints at a bug type (e.g. division, negative result, null/undefined, bounds).\n3. If recall returns lessons: prefer approaches described under \"what_worked\"; avoid those under \"what_failed\" (especially patches previously rejected as overfit); treat \"global\" (cross-project) lessons as weaker priors that project-local lessons override on conflict. If \"seen_before\" is true, tell the user in one line what was learned last time, then proceed.\n4. If recall returns nothing relevant, proceed normally and say nothing about the check.\n\nNever block or delay the actual work, and keep any mention to a single short line."
+  }
+}

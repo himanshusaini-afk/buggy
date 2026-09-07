@@ -63,6 +63,14 @@ const plugsSchema = z.object({
   sandbox_executor: z.string().optional(),
 }).optional();
 
+const watchlistSchema = z
+  .object({
+    enabled: z.boolean().optional().default(true),
+    scope: z.enum(['local', 'team', 'global', 'layered']).optional().default('layered'),
+  })
+  .optional()
+  .default({ enabled: true, scope: 'layered' });
+
 const configSchema = z.object({
   language: z.string(),
   parser: parserSchema,
@@ -71,11 +79,12 @@ const configSchema = z.object({
   oracles: oracleSchema,
   probe: probeSchema,
   plugs: plugsSchema,
+  watchlist: watchlistSchema,
 });
 
 // Known top-level and nested keys for unrecognized-key detection
 const KNOWN_TOP_LEVEL_KEYS = new Set([
-  'language', 'parser', 'lsp', 'sandbox', 'oracles', 'probe', 'plugs',
+  'language', 'parser', 'lsp', 'sandbox', 'oracles', 'probe', 'plugs', 'watchlist',
 ]);
 
 const KNOWN_NESTED_KEYS: Record<string, Set<string>> = {
@@ -85,6 +94,7 @@ const KNOWN_NESTED_KEYS: Record<string, Set<string>> = {
   oracles: new Set(['timeout_threshold_seconds', 'crash_detection', 'overflow_detection', 'determinism_check_count']),
   probe: new Set(['search_budget', 'max_refinement_iterations']),
   plugs: new Set(['parsing', 'oracles', 'repair', 'sandbox_executor']),
+  watchlist: new Set(['enabled', 'scope']),
 };
 
 // ─── Public API ──────────────────────────────────────────────────────────────

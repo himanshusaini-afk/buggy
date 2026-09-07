@@ -5,7 +5,7 @@ import Database from 'better-sqlite3';
  * proof-carrying debugger system.
  *
  * Enables WAL mode for concurrent reads and foreign keys for referential integrity.
- * Creates all 11 tables and required indexes.
+ * Creates all core tables (including the watchlist experience memory) and required indexes.
  *
  * @param dbPath - Path to the SQLite database file (use ':memory:' for in-memory)
  * @returns The initialized Database instance
@@ -149,6 +149,31 @@ CREATE TABLE IF NOT EXISTS oracle_violations (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Watchlist episodes: the project-local experience memory. One row per
+-- investigation, recording what was attempted, what worked, and how things
+-- failed. Verified episodes are distilled into shareable lessons.
+CREATE TABLE IF NOT EXISTS watchlist_episodes (
+  id TEXT PRIMARY KEY,
+  investigation_id TEXT NOT NULL,
+  source TEXT NOT NULL,
+  language TEXT,
+  file_path TEXT NOT NULL,
+  function_id TEXT NOT NULL,
+  defect_class TEXT,
+  failure_class TEXT,
+  outcome TEXT NOT NULL,
+  lesson_key TEXT NOT NULL,
+  global_key TEXT NOT NULL,
+  trigger_json TEXT,
+  attempts_json TEXT NOT NULL DEFAULT '[]',
+  what_worked_json TEXT,
+  failure_detail_json TEXT,
+  timeline_json TEXT,
+  intermediate_results_json TEXT,
+  provenance_json TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path);
 CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type);
@@ -158,4 +183,7 @@ CREATE INDEX IF NOT EXISTS idx_edges_relationship ON edges(relationship);
 CREATE INDEX IF NOT EXISTS idx_symbols_resolved ON symbol_resolutions(resolved);
 CREATE INDEX IF NOT EXISTS idx_interpretations_file ON behavioral_interpretations(file_path);
 CREATE INDEX IF NOT EXISTS idx_patches_status ON patches(status);
+CREATE INDEX IF NOT EXISTS idx_watchlist_lesson_key ON watchlist_episodes(lesson_key);
+CREATE INDEX IF NOT EXISTS idx_watchlist_global_key ON watchlist_episodes(global_key);
+CREATE INDEX IF NOT EXISTS idx_watchlist_outcome ON watchlist_episodes(outcome);
 `;
