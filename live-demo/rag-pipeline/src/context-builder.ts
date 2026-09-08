@@ -37,6 +37,8 @@ export function buildContext(
 
 /** Calculate context utilization percentage */
 export function contextUtilization(usedTokens: number, maxTokens: number): number {
+  // No (or non-positive) budget means 0% utilization; avoids 0/0 = NaN and x/0 = Infinity.
+  if (maxTokens <= 0) return 0;
   return (usedTokens / maxTokens) * 100;
 }
 

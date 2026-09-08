@@ -13,6 +13,10 @@ export interface Chunk {
 /** Split text into chunks by character count with overlap */
 export function chunkBySize(text: string, chunkSize: number, overlap: number): Chunk[] {
   const chunks: Chunk[] = [];
+  // Guard against a non-advancing loop: a non-positive chunk size, or an overlap
+  // that meets/exceeds the chunk size, would leave `start` fixed and spin forever.
+  if (chunkSize <= 0) return chunks;
+  const step = Math.max(1, chunkSize - overlap);
   let start = 0;
   let id = 0;
 
@@ -24,7 +28,7 @@ export function chunkBySize(text: string, chunkSize: number, overlap: number): C
       startIndex: start,
       endIndex: Math.min(end, text.length),
     });
-    start += chunkSize - overlap;
+    start += step;
   }
 
   return chunks;
@@ -36,9 +40,11 @@ export function chunkBySentence(text: string, maxSentencesPerChunk: number): Chu
   const chunks: Chunk[] = [];
   let id = 0;
   let charOffset = 0;
+  // A non-positive group size would never advance `i` — clamp to at least 1.
+  const step = Math.max(1, maxSentencesPerChunk);
 
-  for (let i = 0; i < sentences.length; i += maxSentencesPerChunk) {
-    const group = sentences.slice(i, i + maxSentencesPerChunk);
+  for (let i = 0; i < sentences.length; i += step) {
+    const group = sentences.slice(i, i + step);
     const chunkText = group.join(' ');
     chunks.push({
       id: `chunk_${id++}`,
@@ -54,5 +60,6 @@ export function chunkBySentence(text: string, maxSentencesPerChunk: number): Chu
 
 /** Calculate optimal chunk size based on average token length */
 export function optimalChunkSize(targetTokens: number, avgCharsPerToken: number): number {
-  return targetTokens * avgCharsPerToken;
+  // Chunk size must be positive; non-positive inputs would yield a useless 0/negative size.
+  return Math.max(1, targetTokens * avgCharsPerToken);
 }

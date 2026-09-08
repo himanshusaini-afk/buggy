@@ -20,11 +20,14 @@ export function bm25Score(
 ): number {
   let score = 0;
   const docLength = document.length;
+  // A zero, negative, or missing average document length would divide by zero and
+  // poison the score with NaN/Infinity. Fall back to 1 (neutral length normalization).
+  const safeAvgDocLength = avgDocLength > 0 ? avgDocLength : 1;
 
   for (const term of query) {
     const tf = document.filter(t => t === term).length;
     const idf = Math.log(1 + 1 / (tf + 1)); // Simplified IDF
-    const tfNorm = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (docLength / avgDocLength)));
+    const tfNorm = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (docLength / safeAvgDocLength)));
     score += idf * tfNorm;
   }
 
