@@ -48,10 +48,10 @@
 <div class="cover">
   <div class="tag">PROOF-CARRYING DEBUGGER</div>
   <h1>Buggy</h1>
-  <div class="sub">Usage &amp; Sandbox Guide — how to run it on any project,<br/>a real RAG-chatbot walkthrough, and how the execution sandbox works</div>
+  <div class="sub">Usage &amp; Sandbox Guide — how to run it on any project,<br/>real TypeScript and Python RAG-chatbot walkthroughs, and how the execution sandbox works</div>
   <div class="meta">
     Version 0.1.0 &middot; MIT License &middot; Node &ge; 18<br/>
-    Applies to TypeScript / JavaScript projects
+    TypeScript / JavaScript (full) &middot; Python (bug proving)
   </div>
 </div>
 
@@ -73,30 +73,34 @@
 <!-- ============================================================= -->
 <section class="section">
   <h2>2. Language support (read this first)</h2>
-  <div class="callout warn">
-    <strong>Today, Buggy runs on TypeScript and JavaScript only.</strong> The parser and the execution engine are wired for the TS/JS grammar and a Node runtime. Python and other languages are <strong>not yet supported</strong> by the running pipeline, even though the config file lists them.
+  <div class="callout ok">
+    <strong>TypeScript &amp; JavaScript: fully supported</strong> (parse, prove, repair, classify, analyze).<br/>
+    <strong>Python: bug proving supported</strong> — <code>investigate</code> proves bugs in <code>.py</code> files by executing them. CST features (<code>analyze</code> / <code>list_functions</code>) need an optional grammar (below).
   </div>
-  <p>Why, precisely:</p>
+
+  <h3>How Python proving works without a grammar</h3>
+  <p>The prover reads the target function's source and <strong>runs it in the system Python interpreter</strong> to search for failing inputs. It does not need a parser for that, so proving Python is available immediately. Set the language in <code>.debugger.yaml</code>:</p>
+<pre><code>language: python
+sandbox: { runtime: python, timeout_seconds: 30 }</code></pre>
+  <p>Execution is routed by language: Python targets run in a <code>python</code> subprocess, TS/JS targets in a Node subprocess (see &sect;6).</p>
+
   <table class="kv">
-    <tr><td>Parser</td><td>The parser loads the Tree-sitter <strong>TypeScript grammar unconditionally</strong>. It does not switch grammars based on <code>language</code> in your config, so a <code>.py</code> file would be parsed with TS rules and produce mostly error nodes.</td></tr>
-    <tr><td>Execution / proving</td><td>The engine proves bugs by <strong>running the function in a Node child process</strong> (it strips TypeScript to JavaScript and executes it). There is no Python interpreter path.</td></tr>
-    <tr><td>Config fields</td><td><code>language</code>, <code>parser.command</code>, and <code>sandbox.runtime</code> are accepted and validated, but the parser and executor do not act on them yet.</td></tr>
+    <tr><td>Prove / investigate</td><td><strong>TS, JS, Python</strong> — executes the function, catches crashes (incl. Python <code>ZeroDivisionError</code>, <code>IndexError</code>, <code>TypeError</code>), timeouts, NaN/Infinity, non-determinism, and postcondition violations.</td></tr>
+    <tr><td>Analyze / list_functions / graph</td><td><strong>TS, JS today.</strong> For Python these need the Tree-sitter Python grammar. The parser loads <code>tree-sitter-python</code> automatically if present; if absent it falls back to the TypeScript grammar (so nothing breaks, but Python CST results are unreliable).</td></tr>
+    <tr><td>Postcondition syntax</td><td>Conditions (e.g. <code>isFinite(result)</code>, <code>result &gt;= 0</code>) are written as JavaScript expressions and evaluated against the returned value regardless of target language.</td></tr>
   </table>
-  <div class="callout danger">
-    <strong>For a RAG chatbot:</strong> if your codebase is <strong>TypeScript/JavaScript</strong> (LangChain.js, LlamaIndex.TS, Vercel AI SDK), Buggy works today — this guide's walkthrough is real and runnable. If your RAG chatbot is <strong>Python</strong> (LangChain, LlamaIndex, FastAPI), Buggy cannot analyze it yet. Do not advertise Python support.
-  </div>
-  <h3>What adding Python would take</h3>
-  <ol>
-    <li>Add the <code>tree-sitter-python</code> grammar and make the parser select the grammar from <code>config.language</code>.</li>
-    <li>Add a Python execution runner in the sandbox/executor (spawn <code>python</code>, marshal inputs, capture return/exception), parallel to the current Node runner.</li>
-    <li>Extend the TypeScript-stripping step (which only applies to JS/TS) so it is skipped or replaced for Python.</li>
-  </ol>
-  <p class="small">This is genuine engineering work, not a config switch.</p>
+
+  <h3>Enabling Python <em>parsing</em> (analyze)</h3>
+  <p>Install the grammar once, in an environment with npm registry access:</p>
+<pre><code>npm install tree-sitter-python --legacy-peer-deps</code></pre>
+  <p>No code change is needed — the parser detects and uses it on the next run. (In networks with TLS inspection you may need your corporate CA configured for npm to reach the registry.)</p>
+
+  <div class="callout info"><strong>For a RAG chatbot:</strong> TypeScript stacks (LangChain.js, LlamaIndex.TS, Vercel AI SDK) get the full pipeline. Python stacks (LangChain, LlamaIndex, FastAPI) get bug proving now, and full parsing/analyze once the grammar is installed.</div>
 </section>
 
 <!-- ============================================================= -->
 <section class="section">
-  <h2>3. Install &amp; set up on any (TS/JS) project</h2>
+  <h2>3. Install &amp; set up on any project</h2>
 <pre><code># 1. Install
 npm install buggy          # or: npm install -g buggy for the CLI
 
@@ -108,10 +112,10 @@ npx buggy init             # creates .debugger.yaml and .debugger/
 echo ".debugger/" &gt;&gt; .gitignore</code></pre>
 
   <h3>Configure <code>.debugger.yaml</code></h3>
-<pre><code>language: typescript
-parser:   { command: tree-sitter-typescript }
+<pre><code>language: typescript        # or: python
+parser:   { command: tree-sitter-typescript }   # tree-sitter-python for Python
 lsp:      { command: typescript-language-server }   # optional
-sandbox:  { runtime: node, memory_limit_mb: 512, timeout_seconds: 60 }
+sandbox:  { runtime: node, memory_limit_mb: 512, timeout_seconds: 60 }   # runtime: python for Python
 oracles:  { timeout_threshold_seconds: 10, crash_detection: true,
             overflow_detection: true, determinism_check_count: 5 }
 probe:    { search_budget: 100, max_refinement_iterations: 10 }
@@ -125,7 +129,7 @@ watchlist:{ enabled: true, scope: layered }   # experience memory (see &sect;8)<
   <table>
     <tr><th>Stage</th><th>What happens</th><th>Output</th></tr>
     <tr><td><strong>Parse</strong></td><td>Fault-tolerant Tree-sitter CST, optional LSP symbol resolution, call graph.</td><td>CST + errors, graph in SQLite</td></tr>
-    <tr><td><strong>Prove</strong></td><td>Backward slice, spec refinement (PROBE loop), specification-aware fuzzing that runs the function on generated inputs looking for a postcondition violation.</td><td>Proof-of-failure certificate, or <code>unconfirmed</code></td></tr>
+    <tr><td><strong>Prove</strong></td><td>Backward slice, spec refinement (PROBE loop), specification-aware fuzzing that runs the function (Node or Python) on generated inputs looking for a postcondition violation or crash.</td><td>Proof-of-failure certificate, or <code>unconfirmed</code></td></tr>
     <tr><td><strong>Repair</strong></td><td>AST-aware candidate patches from multiple strategies (guards, expression/return correction, etc.).</td><td>&ge;3 candidate patches</td></tr>
     <tr><td><strong>Classify</strong></td><td>66-dimension AST-difference vector scored for overfitting; approve below threshold, reject above.</td><td>Approved / rejected patches</td></tr>
   </table>
@@ -134,104 +138,78 @@ watchlist:{ enabled: true, scope: layered }   # experience memory (see &sect;8)<
 
 <!-- ============================================================= -->
 <section class="section">
-  <h2>5. Walkthrough: a RAG chatbot (TypeScript)</h2>
-  <p class="lead">A retrieval-augmented chatbot lives or dies on its retrieval math. The classic production incidents are silent: a NaN similarity from an empty embedding, a crash on an empty document set, an infinite loop in a chunker. Here is Buggy run against a real TS RAG pipeline (embeddings, chunking, retrieval). <strong>Every result below is actual output.</strong></p>
+  <h2>5. Walkthrough: a RAG chatbot</h2>
+  <p class="lead">A retrieval-augmented chatbot lives or dies on its retrieval math. The classic production incidents are silent: a NaN/undefined similarity from an empty embedding, a crash on an empty document set, an infinite loop in a chunker. Below is Buggy run against RAG retrieval math in <strong>both TypeScript and Python</strong>. <strong>Every result is actual output.</strong></p>
 
-  <h3>The code under test</h3>
-<pre><code>// embeddings.ts
-export function cosineSimilarity(a: number[], b: number[]): number {
+  <h3>TypeScript (embeddings.ts)</h3>
+<pre><code>export function cosineSimilarity(a: number[], b: number[]): number {
   let dot = 0, normA = 0, normB = 0;
   for (let i = 0; i &lt; a.length; i++) { dot += a[i]*b[i]; normA += a[i]**2; normB += b[i]**2; }
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));   // zero vector -&gt; 0/0 = NaN
-}
-export function averageEmbeddings(embeddings: number[][]): number[] {
-  const dim = embeddings[0].length;                     // [] -&gt; undefined.length -&gt; throws
-  /* ... */
-}
-// retriever.ts
-export function bm25Score(query: string[], document: string[], avgDocLength: number, ...): number {
-  /* ... document.length / avgDocLength ... */          // avgDocLength 0/null -&gt; NaN
 }</code></pre>
-
-  <h3>Run it</h3>
 <pre><code>buggy investigate cosineSimilarity --file src/embeddings.ts
-buggy investigate averageEmbeddings --file src/embeddings.ts
-buggy investigate bm25Score        --file src/retriever.ts</code></pre>
 
-  <h3>Real results</h3>
-<pre><code>cosineSimilarity   status=confirmed_no_repair
+cosineSimilarity   status=confirmed_no_repair
   proof.test_input  = [[], []]          # two empty embedding vectors
   observed_output   = NaN
   violated          = !isNaN(result)
   patches           = 0 approved, 3 rejected (all flagged overfit)
 
-bm25Score          status=confirmed_no_repair
-  proof.test_input  = [[""], [""], null]  # avgDocLength = null
-  observed_output   = NaN
-  violated          = !isNaN(result)
-  patches           = 0 approved, 3 rejected
-
 averageEmbeddings  status=confirmed_no_repair
   proof.test_input  = [[]]              # empty embedding set
-  observed_output   = (threw)
-  violated          = function must not throw:
-                      TypeError: Cannot read properties of undefined (reading 'length')
-  patches           = 0 approved, 3 rejected</code></pre>
+  violated          = TypeError: Cannot read properties of undefined (reading 'length')</code></pre>
 
-  <div class="callout ok"><strong>What this proves in practice:</strong> before your chatbot ships, Buggy hands you the exact inputs that break retrieval — an empty embedding makes similarity <code>NaN</code> (every document ties, ranking is garbage), and an empty result set crashes the aggregator. These are certified with a reproducing input, not guessed.</div>
+  <h3>Python (embeddings.py)</h3>
+<pre><code>import math
 
-  <div class="callout warn"><strong>Honest note on the fixes:</strong> in all three cases every candidate patch was classified as <em>overfit</em> and rejected, so the status is <code>confirmed_no_repair</code>. Buggy is deliberately conservative: it would rather hand you a proven bug than auto-apply a fix that only satisfies the one failing input. You then write the guard (e.g. return 0 for a zero-norm vector) with the exact trigger in hand.</div>
+def cosine_similarity(a, b):
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    return dot / (norm_a * norm_b)      # zero vector -&gt; ZeroDivisionError
 
-  <h3>Same thing over MCP (what Kiro/Cursor call)</h3>
-<pre><code>tool: buggy_investigate
-args: { "function_id": "cosineSimilarity", "file_path": "src/embeddings.ts",
-        "postconditions": ["!isNaN(result)", "isFinite(result)"] }
+def average_embeddings(vectors):
+    dim = len(vectors[0])               # [] -&gt; IndexError
+    ...</code></pre>
+<pre><code>buggy investigate cosine_similarity --file src/embeddings.py   # .debugger.yaml: language: python
 
--&gt; { "status": "confirmed_no_repair",
-     "proof": { "test_input": [[],[]], "observed_output": null,
-                "violated_postcondition": "!isNaN(result)" },
-     "approved_patches": 0, "rejected_patches": 3 }</code></pre>
+cosine_similarity    status=confirmed_no_repair
+  proof.test_input   = [[], []]         # two empty embedding vectors
+  violated           = function must not throw: ZeroDivisionError: division by zero
 
-  <h3>Programmatic API</h3>
-<pre><code>import { ProofDebugger } from 'buggy';
-const dbg = new ProofDebugger({ projectRoot: process.cwd() });
-await dbg.initialize();
-const report = await dbg.investigate({
-  functionId: 'cosineSimilarity', filePath: 'src/embeddings.ts',
-  specification: { postconditions: ['!isNaN(result)', 'isFinite(result)'],
-                   parameters: [{name:'a',type:'number[]'},{name:'b',type:'number[]'}],
-                   return_type: 'number' },
-});
-console.log(report.status, report.proof?.test_input);   // confirmed_no_repair [ [], [] ]
-await dbg.shutdown();</code></pre>
+average_embeddings   status=confirmed_no_repair
+  proof.test_input   = [[]]             # empty embedding set
+  violated           = function must not throw: IndexError: list index out of range</code></pre>
+
+  <div class="callout ok"><strong>Same guarantee, both languages:</strong> before your chatbot ships, Buggy hands you the exact inputs that break retrieval — proven by executing the real function. Note the language-specific behavior it captures faithfully: JavaScript's empty-vector similarity yields <code>NaN</code>, while Python's raises <code>ZeroDivisionError</code>.</div>
+
+  <div class="callout warn"><strong>Honest note on the fixes:</strong> in these cases every candidate patch was classified as <em>overfit</em> and rejected (<code>confirmed_no_repair</code>). Buggy is deliberately conservative: it would rather hand you a proven bug than auto-apply a fix that only satisfies the one failing input. You then write the guard (e.g. return 0 for a zero-norm vector) with the exact trigger in hand.</div>
 
   <h3>The memory makes the next run smarter</h3>
-<pre><code>tool: buggy_recall  args: { "function_id": "cosineSimilarity" }
+<pre><code>tool: buggy_recall  args: { "function_id": "cosine_similarity" }
 -&gt; { "seen_before": true,
-     "lessons": [ { "tier": "project", "title": "nan_result in cosineSimilarity",
+     "lessons": [ { "tier": "project", "title": "... in cosine_similarity",
                     "what_failed": ["Overfitting risk: ..."], "trigger_shape": "[[],[]]" } ] }</code></pre>
-  <p>With the <em>recall-first</em> hook installed, the next time anyone asks Kiro to touch <code>cosineSimilarity</code>, Kiro is reminded of the proven <code>NaN</code> at <code>[[],[]]</code> and which fix shapes were rejected — so it writes the zero-vector guard directly.</p>
+  <p>With the <em>recall-first</em> hook installed, the next time anyone asks Kiro to touch <code>cosine_similarity</code>, Kiro is reminded of the proven failure at <code>[[],[]]</code> and which fix shapes were rejected — so it writes the zero-vector guard directly.</p>
 </section>
 
 <!-- ============================================================= -->
 <section class="section">
   <h2>6. The execution sandbox — how it actually works</h2>
-  <p class="lead">To prove a bug, Buggy must <em>run</em> your function on generated inputs. Here is exactly how that execution is contained today, stated plainly so you can represent it accurately.</p>
+  <p class="lead">To prove a bug, Buggy must <em>run</em> your function on generated inputs. Execution is routed by language to a matching runtime, both under the same contract.</p>
 
-  <h3>What runs your code</h3>
   <table class="kv">
-    <tr><td>Mechanism</td><td>A <strong>forked Node.js child process</strong>. Buggy writes a small generated runner script to a temp directory, forks it, calls your function, and returns the result to the parent.</td></tr>
-    <tr><td>Result channel</td><td>Results come back over a dedicated <strong>IPC channel</strong>, so anything the function prints to stdout cannot corrupt the result payload.</td></tr>
-    <tr><td>Timeout</td><td>A parent-managed <strong>wall-clock timeout</strong> (default 5s; influenced by <code>oracles.timeout_threshold_seconds</code>). On timeout the child is <code>SIGKILL</code>ed — this is how infinite-loop bugs (e.g. a chunker with <code>overlap &ge; chunkSize</code>) are caught.</td></tr>
-    <tr><td>Scratch space</td><td>Runner scripts are written under the OS temp dir (<code>&lt;tmp&gt;/buggy-exec</code>) and deleted after each run.</td></tr>
-    <tr><td>Edge-value fidelity</td><td><code>NaN</code>, <code>Infinity</code>, <code>-Infinity</code>, and <code>undefined</code> are preserved through sentinels, so the very edge cases that cause bugs are tested faithfully (plain JSON would lose them).</td></tr>
-    <tr><td>TS handling</td><td>TypeScript is stripped to plain JavaScript before execution.</td></tr>
+    <tr><td>TypeScript / JavaScript</td><td>A <strong>forked Node.js child process</strong> running a generated runner; TypeScript is stripped to JavaScript; results returned over Node <strong>IPC</strong>.</td></tr>
+    <tr><td>Python</td><td>A spawned <strong><code>python</code> child process</strong> running a generated runner that execs the module and calls the target; results returned via a <strong>temp result file</strong> (Python has no Node IPC), keeping the function's own stdout from corrupting the payload.</td></tr>
+    <tr><td>Timeout</td><td>A parent-managed <strong>wall-clock timeout</strong> (from <code>oracles.timeout_threshold_seconds</code> / <code>sandbox.timeout_seconds</code>). On timeout the child is <code>SIGKILL</code>ed — this is how infinite-loop bugs are caught.</td></tr>
+    <tr><td>Scratch space</td><td>Runner scripts and payloads are written under the OS temp dir (<code>&lt;tmp&gt;/buggy-exec</code>, <code>&lt;tmp&gt;/buggy-pyexec</code>) and deleted after each run.</td></tr>
+    <tr><td>Edge-value fidelity</td><td><code>NaN</code>, <code>Infinity</code>, <code>-Infinity</code>, and <code>undefined</code>/<code>None</code> are preserved through sentinels in both directions, so the very edge cases that cause bugs are tested faithfully.</td></tr>
     <tr><td>Determinism check</td><td>The function can be run N times on the same input to distinguish real bugs from flakes.</td></tr>
   </table>
 
   <h3>Oracles (what counts as a failure)</h3>
   <ul>
-    <li><strong>Crash</strong> — an uncaught exception (e.g. the <code>averageEmbeddings([])</code> <code>TypeError</code> above).</li>
+    <li><strong>Crash</strong> — an uncaught exception (JS <code>TypeError</code>; Python <code>ZeroDivisionError</code>, <code>IndexError</code>, <code>TypeError</code>, ...).</li>
     <li><strong>Timeout</strong> — exceeds the wall-clock budget (infinite loop / pathological input).</li>
     <li><strong>Postcondition violation</strong> — output breaks a declared spec (e.g. <code>!isNaN(result)</code>).</li>
     <li><strong>Non-determinism</strong> — differing outputs across identical runs.</li>
@@ -239,11 +217,11 @@ await dbg.shutdown();</code></pre>
   </ul>
 
   <div class="callout danger">
-    <strong>Isolation reality — important for security claims.</strong> The active sandbox is <strong>process-level, not VM-level</strong>. The forked child shares the host filesystem, network, and user privileges of the parent Node process. Memory limits are <em>reported, not OS-enforced</em>. This is fine for analyzing <em>your own</em> code. Do <strong>not</strong> point it at untrusted third-party code expecting containment, and do not market it as "hardware isolation."
+    <strong>Isolation reality — important for security claims.</strong> Both runtimes use <strong>process-level isolation, not VM-level</strong>. The child (Node or Python) shares the host filesystem, network, and user privileges of the parent process. Memory limits are <em>reported, not OS-enforced</em>. This is fine for analyzing <em>your own</em> code. Do <strong>not</strong> point it at untrusted third-party code expecting containment, and do not market it as "hardware isolation."
   </div>
 
   <div class="callout info">
-    <strong>Firecracker microVM — designed, not yet active.</strong> The codebase includes a microVM isolation layer (per-VM memory caps, network egress policy, syscall allow-list, OAP execution passports, a circuit breaker, and a snapshot pool for fast boot). It is <strong>not wired into the default pipeline</strong> — the sandbox agent reports itself unavailable and the subprocess executor is used instead. Treat microVM isolation as roadmap, and enable/validate it before making isolation guarantees.
+    <strong>Firecracker microVM — designed, not yet active.</strong> The codebase includes a microVM isolation layer (per-VM memory caps, network egress policy, syscall allow-list, OAP execution passports, a circuit breaker, and a snapshot pool). It is <strong>not wired into the default pipeline</strong>; the subprocess executors are used instead. Treat microVM isolation as roadmap, and enable/validate it before making isolation guarantees.
   </div>
 </section>
 
@@ -255,7 +233,7 @@ await dbg.shutdown();</code></pre>
     <tr><th>Command</th><th>Purpose</th></tr>
     <tr><td><code>buggy init</code></td><td>Create <code>.debugger.yaml</code> + <code>.debugger/</code>.</td></tr>
     <tr><td><code>buggy analyze &lt;file&gt;</code></td><td>Parse a file; list functions and syntax errors.</td></tr>
-    <tr><td><code>buggy investigate &lt;fn&gt; --file &lt;path&gt;</code></td><td>Run the full pipeline on a function.</td></tr>
+    <tr><td><code>buggy investigate &lt;fn&gt; --file &lt;path&gt;</code></td><td>Run the full pipeline on a function (TS/JS/Python).</td></tr>
     <tr><td><code>buggy status &lt;id&gt;</code></td><td>Progress of a running/finished investigation.</td></tr>
     <tr><td><code>buggy halt &lt;id&gt;</code></td><td>Stop an investigation, keep partial results.</td></tr>
   </table>
@@ -299,17 +277,18 @@ await dbg.shutdown();</code></pre>
   <h2>9. Limitations to represent honestly</h2>
   <table>
     <tr><th>Area</th><th>Reality today</th></tr>
-    <tr><td>Languages</td><td>TypeScript/JavaScript only. Python and others are not analyzed yet (&sect;2).</td></tr>
-    <tr><td>Isolation</td><td>Process-level (forked Node subprocess), not VM-level. Firecracker microVM is present but inactive (&sect;6).</td></tr>
+    <tr><td>Languages — proving</td><td>TypeScript, JavaScript, and Python are executed and proven (verified end-to-end).</td></tr>
+    <tr><td>Languages — analyze/CST</td><td>TS/JS today. Python <code>analyze</code>/<code>list_functions</code> require installing <code>tree-sitter-python</code> (the parser auto-detects it); until then Python CST features fall back to the TS grammar and are unreliable. Rust/Go/others are not wired.</td></tr>
+    <tr><td>Isolation</td><td>Process-level (forked Node / spawned Python), not VM-level. Firecracker microVM is present but inactive (&sect;6).</td></tr>
     <tr><td>Auto-fix</td><td>Proposes and screens fixes; frequently rejects all candidates as overfit, yielding <code>confirmed_no_repair</code>. Best framed as "proves bugs and screens fixes," not "auto-fixes."</td></tr>
     <tr><td>Patch validation</td><td>The compile/emulate/test filtering pipeline exists but is not on the default investigate path; candidates are screened for overfitting, not compile/test-verified.</td></tr>
     <tr><td>Best-fit inputs</td><td>Scalar/numeric functions prove most readily; array/object inputs may need tighter preconditions or return <code>unconfirmed</code>.</td></tr>
   </table>
-  <div class="callout ok"><strong>Rock-solid today:</strong> TS/JS parsing, bug proving with reproducing certificates, overfitting classification, the CLI / MCP / API surfaces, the Kiro hooks &amp; steering, and the full Watchlist memory — all test-backed (900+ passing tests).</div>
+  <div class="callout ok"><strong>Rock-solid today:</strong> TS/JS parsing, bug proving with reproducing certificates across TS/JS/Python, overfitting classification, the CLI / MCP / API surfaces, the Kiro hooks &amp; steering, and the full Watchlist memory — all test-backed (900+ passing tests).</div>
 </section>
 
 <footer>
-  Buggy v0.1.0 &middot; Usage &amp; Sandbox Guide. Examples in &sect;5 are real output from the bundled RAG demo (<code>live-demo/rag-pipeline</code>). Language and sandbox statements reflect the current implementation, not aspirational documentation.
+  Buggy v0.1.0 &middot; Usage &amp; Sandbox Guide. Examples in &sect;5 are real output from the bundled RAG demos (TypeScript <code>live-demo/rag-pipeline</code>; Python equivalents executed via the Python runtime). Language and sandbox statements reflect the current implementation, not aspirational documentation.
 </footer>
 
 </body>
