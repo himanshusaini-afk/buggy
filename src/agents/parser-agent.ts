@@ -12,8 +12,12 @@
 import { readFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
 import Parser from 'tree-sitter';
 import TypeScriptLanguage from 'tree-sitter-typescript';
+
+/** CommonJS require, used to optionally load native grammars (e.g. Python) at runtime. */
+const requireCjs = createRequire(import.meta.url);
 
 import type { CstNode, ParseResult, Position, SyntaxError as CstSyntaxError, TreeSitterEdit } from '../types/cst.js';
 import type { SymbolResolution, SourceLocation } from '../types/graph.js';
@@ -58,14 +62,49 @@ export class ParserAgent {
    */
   private parseScopeId: string = randomUUID();
   private lspClient: LspClient | null = null;
+  /** The language whose grammar is active. */
+  readonly language: string;
+  /**
+   * True when a requested non-TypeScript grammar (e.g. Python) could not be
+   * loaded and the parser fell back to the TypeScript grammar. Parsing still
+   * works but CST results for that language are unreliable; execution-based
+   * proving does not depend on the CST and is unaffected.
+   */
+  readonly grammarUnavailable: boolean;
 
-  constructor(lspConfig?: LspClientConfig) {
+  constructor(lspConfig?: LspClientConfig, language?: string) {
     this.parser = new Parser();
-    this.parser.setLanguage(TypeScriptLanguage.typescript as unknown as Parser.Language);
+    this.language = (language ?? 'typescript').toLowerCase();
+    this.grammarUnavailable = !this.applyGrammar(this.language);
 
     if (lspConfig) {
       this.lspClient = new LspClient(lspConfig);
     }
+  }
+
+  /**
+   * Select the Tree-sitter grammar for a language. TypeScript/JavaScript use the
+   * bundled grammar. Python is loaded optionally at runtime via `require`, so the
+   * package builds and runs even when `tree-sitter-python` is not installed; if
+   * it is absent, the parser falls back to the TypeScript grammar.
+   *
+   * @returns true if the requested grammar was applied; false if it fell back.
+   */
+  private applyGrammar(language: string): boolean {
+    if (language === 'python' || language === 'py') {
+      try {
+        const mod = requireCjs('tree-sitter-python') as { default?: unknown };
+        const lang = (mod.default ?? mod) as Parser.Language;
+        this.parser.setLanguage(lang);
+        return true;
+      } catch {
+        // Grammar not installed — fall back to TypeScript so nothing breaks.
+        this.parser.setLanguage(TypeScriptLanguage.typescript as unknown as Parser.Language);
+        return false;
+      }
+    }
+    this.parser.setLanguage(TypeScriptLanguage.typescript as unknown as Parser.Language);
+    return true;
   }
 
   /**

@@ -7,8 +7,8 @@
  * and determinism violations.
  */
 
-import { SubprocessExecutor } from '../sandbox/subprocess-executor.js';
 import type { ExecuteResult } from '../sandbox/subprocess-executor.js';
+import { createExecutor, type CodeExecutor } from '../sandbox/executor-factory.js';
 import { evaluatePrecondition, evaluatePostcondition } from './spec-conditions.js';
 
 export interface FuzzTarget {
@@ -43,6 +43,8 @@ export interface FuzzConfig {
   executionTimeout?: number;
   /** Number of repetitions for determinism check */
   determinismChecks?: number;
+  /** Target language — selects the execution runtime (e.g. 'python' → PythonExecutor). */
+  language?: string;
 }
 
 export interface FuzzViolation {
@@ -66,7 +68,7 @@ const DEFAULT_EXECUTION_TIMEOUT = 2000;
 const DEFAULT_DETERMINISM_CHECKS = 3;
 
 export class RealFuzzer {
-  private executor: SubprocessExecutor;
+  private executor: CodeExecutor;
   private config: Required<FuzzConfig>;
 
   constructor(config?: FuzzConfig) {
@@ -74,8 +76,9 @@ export class RealFuzzer {
       maxAttempts: config?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
       executionTimeout: config?.executionTimeout ?? DEFAULT_EXECUTION_TIMEOUT,
       determinismChecks: config?.determinismChecks ?? DEFAULT_DETERMINISM_CHECKS,
+      language: config?.language ?? 'typescript',
     };
-    this.executor = new SubprocessExecutor({ timeout: this.config.executionTimeout });
+    this.executor = createExecutor(this.config.language, { timeout: this.config.executionTimeout });
   }
 
   async fuzz(target: FuzzTarget): Promise<FuzzReport> {
@@ -124,14 +127,9 @@ export class RealFuzzer {
 
       // Check for crash violation
       if (result.crashed) {
-        // Distinguish environment errors from real bugs:
-        // ReferenceError/SyntaxError are likely TypeScript stripping artifacts — skip them
-        const exType = result.exceptionType || '';
-        const errMsg = result.error || '';
-        const isEnvironmentError = exType === 'ReferenceError' || exType === 'SyntaxError' ||
-          errMsg.includes('SyntaxError') || errMsg.includes('ReferenceError');
-
-        if (isEnvironmentError) {
+        // Distinguish environment errors (parsing/loading artifacts, not bugs in
+        // the function itself) from real bugs, per language.
+        if (this.isEnvironmentError(result.exceptionType || '', result.error || '')) {
           environmentErrors++;
           continue;
         }
@@ -194,6 +192,39 @@ export class RealFuzzer {
   }
 
   /**
+   * Classify a crash as an environment error (a parsing/loading artifact, not a
+   * real defect in the target function) so it can be skipped rather than
+   * reported as a bug. The set is language-specific.
+   *
+   * - JS/TS: ReferenceError/SyntaxError usually come from TypeScript stripping.
+   * - Python: syntax/indentation/import failures mean the module never loaded;
+   *   `FunctionNotFound`/`SpawnError` are extraction/runtime harness issues.
+   *   Genuine in-function errors (ZeroDivisionError, TypeError, ValueError,
+   *   IndexError, KeyError, NameError raised at call time, ...) are kept as bugs.
+   */
+  private isEnvironmentError(exceptionType: string, errorMessage: string): boolean {
+    if ((this.config.language ?? '').toLowerCase() === 'python') {
+      const pyEnv = new Set([
+        'SyntaxError',
+        'IndentationError',
+        'TabError',
+        'ModuleNotFoundError',
+        'ImportError',
+        'FunctionNotFound',
+        'SpawnError',
+      ]);
+      return pyEnv.has(exceptionType) || errorMessage.includes('IndentationError');
+    }
+    return (
+      exceptionType === 'ReferenceError' ||
+      exceptionType === 'SyntaxError' ||
+      exceptionType === 'SpawnError' ||
+      errorMessage.includes('SyntaxError') ||
+      errorMessage.includes('ReferenceError')
+    );
+  }
+
+  /**
    * Generate inputs based on parameter types.
    * Edge cases come first, followed by random values.
    */
@@ -222,22 +253,45 @@ export class RealFuzzer {
   private generateForType(type: string): unknown[] {
     const normalizedType = type.toLowerCase().trim();
 
-    if (normalizedType === 'number' || normalizedType === 'number | undefined') {
+    // Scalars — accepts TS (number/string/boolean) and Python (int/float/str/bool) spellings.
+    if (['number', 'int', 'float', 'number | undefined'].includes(normalizedType)) {
       return this.generateNumberInputs();
     }
-    if (normalizedType === 'number[]' || normalizedType === 'array<number>') {
-      return this.generateNumberArrayInputs();
-    }
-    if (normalizedType === 'string') {
+    if (normalizedType === 'string' || normalizedType === 'str') {
       return this.generateStringInputs();
     }
-    if (normalizedType === 'string[]' || normalizedType === 'array<string>') {
-      return this.generateStringArrayInputs();
-    }
-    if (normalizedType === 'boolean') {
+    if (normalizedType === 'boolean' || normalizedType === 'bool') {
       return [true, false];
     }
-    if (normalizedType.includes('[]') || normalizedType.includes('array')) {
+
+    // String collections (check before generic list so str-lists aren't treated as numbers).
+    if (
+      normalizedType === 'string[]' ||
+      normalizedType === 'array<string>' ||
+      normalizedType === 'list[str]' ||
+      normalizedType === 'list<str>'
+    ) {
+      return this.generateStringArrayInputs();
+    }
+
+    // Number collections, incl. Python list[int] / list[float] / bare list.
+    if (
+      normalizedType === 'number[]' ||
+      normalizedType === 'array<number>' ||
+      normalizedType === 'list[int]' ||
+      normalizedType === 'list[float]' ||
+      normalizedType === 'list[number]' ||
+      normalizedType === 'list'
+    ) {
+      return this.generateNumberArrayInputs();
+    }
+
+    // Any other array/list shape defaults to number arrays.
+    if (
+      normalizedType.includes('[]') ||
+      normalizedType.includes('array') ||
+      normalizedType.startsWith('list')
+    ) {
       return this.generateNumberArrayInputs();
     }
 

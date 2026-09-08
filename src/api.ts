@@ -165,10 +165,13 @@ export class ProofDebugger {
     this.graphQueries = new GraphQueries(this.db);
 
     // Initialize parser agent with LSP config
-    this.parserAgent = new ParserAgent({
-      command: this.config.lsp.command,
-      initializationOptions: this.config.lsp.initialization_options,
-    });
+    this.parserAgent = new ParserAgent(
+      {
+        command: this.config.lsp.command,
+        initializationOptions: this.config.lsp.initialization_options,
+      },
+      this.config.language
+    );
 
     // Initialize the experience-memory recorder (Watchlist). It shares the
     // project graph DB for local episodes and writes team/global steering
@@ -411,8 +414,9 @@ export class ProofDebugger {
       },
       bugProvingAgent: {
         investigate: async (target) => {
-          // Use the real Bug_Proving_Agent with execution-based fuzzing
-          const agent = new BugProvingAgent(this.db!);
+          // Use the real Bug_Proving_Agent with execution-based fuzzing.
+          // `language` routes execution to the matching runtime (Python → PythonExecutor).
+          const agent = new BugProvingAgent(this.db!, { language: this.config!.language });
           return agent.investigate(target);
         },
       },

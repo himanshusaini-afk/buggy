@@ -553,7 +553,8 @@ function extractFunctionDeclarations(parseResult: ParseResult): FunctionInfo[] {
     const isFunctionType =
       node.type === 'function_declaration' ||
       node.type === 'method_definition' ||
-      node.type === 'generator_function_declaration';
+      node.type === 'generator_function_declaration' ||
+      node.type === 'function_definition'; // Python (def ...)
 
     if (isFunctionType) {
       // Try to find name from children

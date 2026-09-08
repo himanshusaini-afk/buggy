@@ -23,7 +23,8 @@ import {
   type SpecificationAssertion,
 } from './difftestgen.js';
 import { RealFuzzer, type FuzzTarget, type FuzzConfig, type FuzzReport } from './real-fuzzer.js';
-import { SubprocessExecutor, type ExecuteResult } from '../sandbox/subprocess-executor.js';
+import type { ExecuteResult } from '../sandbox/subprocess-executor.js';
+import { createExecutor } from '../sandbox/executor-factory.js';
 import { evaluatePrecondition, evaluatePostcondition } from './spec-conditions.js';
 import type { SourceLocation } from '../types/graph.js';
 import type { InvestigationTarget } from '../types/orchestrator.js';
@@ -52,6 +53,8 @@ export interface BugProvingAgentConfig {
   diffTestGen?: Partial<DiffTestGenConfig>;
   /** Configuration for real fuzzing. */
   fuzz?: FuzzConfig;
+  /** Target language — routes execution to the matching runtime (e.g. 'python'). */
+  language?: string;
 }
 
 /**
@@ -110,8 +113,8 @@ export class BugProvingAgent {
       parameterNames: target.specification.parameters.map((p) => p.name),
     };
 
-    // Step 3: Run real fuzzer
-    const fuzzer = new RealFuzzer(this.config.fuzz);
+    // Step 3: Run real fuzzer (language routes the execution runtime)
+    const fuzzer = new RealFuzzer({ ...this.config.fuzz, language: this.config.language });
     const report = await fuzzer.fuzz(fuzzTarget);
 
     const intermediate = {
@@ -165,7 +168,7 @@ export class BugProvingAgent {
     // only way that makes sense — by observing that repeated executions on the
     // same input do not all agree.
     if (violation.oracleType === 'determinism') {
-      const detExecutor = new SubprocessExecutor({ timeout: 3000 });
+      const detExecutor = createExecutor(this.config.language, { timeout: 3000 });
       const detResults = await detExecutor.executeMultiple(
         {
           functionCode: target.sourceCode,
@@ -194,7 +197,7 @@ export class BugProvingAgent {
     }
 
     // Soundness: confirm the postcondition is actually violated
-    const executor = new SubprocessExecutor({ timeout: 3000 });
+    const executor = createExecutor(this.config.language, { timeout: 3000 });
     const rerunResult = await executor.execute({
       functionCode: target.sourceCode,
       functionName: target.functionName,
