@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Buggy — Usage & Sandbox Guide</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1a1a1a; line-height: 1.5; font-size: 11pt; margin: 0;
+  }
+  h1, h2, h3 { color: #0b2545; line-height: 1.2; }
+  h1 { font-size: 26pt; margin: 0 0 4pt; }
+  h2 { font-size: 16pt; border-bottom: 2px solid #0b2545; padding-bottom: 4px; margin-top: 0; }
+  h3 { font-size: 12.5pt; margin: 16px 0 4px; }
+  code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+  code { background: #eef2f7; padding: 1px 4px; border-radius: 3px; font-size: 9.5pt; }
+  pre {
+    background: #0b1b2b; color: #e6edf3; padding: 12px 14px; border-radius: 6px;
+    font-size: 8.7pt; line-height: 1.45; overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+  }
+  pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 9.5pt; }
+  th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #0b2545; color: #fff; }
+  tr:nth-child(even) td { background: #f4f7fb; }
+  .section { page-break-before: always; padding-top: 6px; }
+  .cover { page-break-after: always; padding-top: 60mm; text-align: center; }
+  .cover .sub { font-size: 13pt; color: #486581; margin-top: 8px; }
+  .cover .meta { margin-top: 40px; font-size: 10pt; color: #627d98; }
+  .tag { display: inline-block; background: #d9e2ec; color: #0b2545; border-radius: 4px; padding: 1px 7px; font-size: 8.5pt; font-weight: 600; }
+  .callout { border-left: 4px solid; padding: 8px 12px; margin: 10px 0; border-radius: 0 5px 5px 0; font-size: 10pt; }
+  .warn { background: #fff4e5; border-color: #d9822b; }
+  .danger { background: #fdecea; border-color: #c0392b; }
+  .ok { background: #eaf7ee; border-color: #2e8540; }
+  .info { background: #e8f0fe; border-color: #1a73e8; }
+  .lead { font-size: 11.5pt; color: #334e68; }
+  ul, ol { margin: 6px 0 6px 0; padding-left: 20px; }
+  li { margin: 3px 0; }
+  .kv td:first-child { font-weight: 600; width: 34%; background: #f4f7fb; }
+  footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #cbd5e1; font-size: 8.5pt; color: #829ab1; }
+  .small { font-size: 9pt; color: #627d98; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="tag">PROOF-CARRYING DEBUGGER</div>
+  <h1>Buggy</h1>
+  <div class="sub">Usage &amp; Sandbox Guide — how to run it on any project,<br/>a real RAG-chatbot walkthrough, and how the execution sandbox works</div>
+  <div class="meta">
+    Version 0.1.0 &middot; MIT License &middot; Node &ge; 18<br/>
+    Applies to TypeScript / JavaScript projects
+  </div>
+</div>
+
+<!-- ============================================================= -->
+<section>
+  <h2>1. What Buggy is</h2>
+  <p class="lead">Buggy is a multi-agent <strong>proof-carrying debugger</strong>. Instead of flagging code that "looks risky," it runs a four-stage pipeline that finds a concrete input, proves the bug reproduces, proposes candidate fixes, and rejects fixes that only paper over the failing test.</p>
+  <p><strong>Parse &rarr; Prove &rarr; Repair &rarr; Classify</strong>, coordinated by an orchestrator, and exposed three ways:</p>
+  <ul>
+    <li><strong>CLI</strong> — <code>buggy</code> for local/CI use.</li>
+    <li><strong>MCP server</strong> — <code>buggy-mcp</code>, so AI IDEs (Kiro, Cursor, Windsurf) call it as tools.</li>
+    <li><strong>Programmatic API</strong> — the <code>ProofDebugger</code> class for scripts and integrations.</li>
+  </ul>
+  <p>It also ships a Kiro integration (hooks + steering) and an <strong>experience memory ("Watchlist")</strong> that records what worked and what failed on every investigation, so results improve with each iteration.</p>
+
+  <div class="callout info"><strong>What makes it different:</strong> a <em>proof-of-failure certificate</em> (a real triggering input, the faulty output, and the violated postcondition, verified for admissibility, soundness, and reproducibility) plus an <em>overfitting classifier</em> that throws out patches which only match the test.</div>
+</section>
+
+<!-- ============================================================= -->
+<section class="section">
+  <h2>2. Language support (read this first)</h2>
+  <div class="callout warn">
+    <strong>Today, Buggy runs on TypeScript and JavaScript only.</strong> The parser and the execution engine are wired for the TS/JS grammar and a Node runtime. Python and other languages are <strong>not yet supported</strong> by the running pipeline, even though the config file lists them.
+  </div>
+  <p>Why, precisely:</p>
+  <table class="kv">
+    <tr><td>Parser</td><td>The parser loads the Tree-sitter <strong>TypeScript grammar unconditionally</strong>. It does not switch grammars based on <code>language</code> in your config, so a <code>.py</code> file would be parsed with TS rules and produce mostly error nodes.</td></tr>
+    <tr><td>Execution / proving</td><td>The engine proves bugs by <strong>running the function in a Node child process</strong> (it strips TypeScript to JavaScript and executes it). There is no Python interpreter path.</td></tr>
+    <tr><td>Config fields</td><td><code>language</code>, <code>parser.command</code>, and <code>sandbox.runtime</code> are accepted and validated, but the parser and executor do not act on them yet.</td></tr>
+  </table>
+  <div class="callout danger">
+    <strong>For a RAG chatbot:</strong> if your codebase is <strong>TypeScript/JavaScript</strong> (LangChain.js, LlamaIndex.TS, Vercel AI SDK), Buggy works today — this guide's walkthrough is real and runnable. If your RAG chatbot is <strong>Python</strong> (LangChain, LlamaIndex, FastAPI), Buggy cannot analyze it yet. Do not advertise Python support.
+  </div>
+  <h3>What adding Python would take</h3>
+  <ol>
+    <li>Add the <code>tree-sitter-python</code> grammar and make the parser select the grammar from <code>config.language</code>.</li>
+    <li>Add a Python execution runner in the sandbox/executor (spawn <code>python</code>, marshal inputs, capture return/exception), parallel to the current Node runner.</li>
+    <li>Extend the TypeScript-stripping step (which only applies to JS/TS) so it is skipped or replaced for Python.</li>
+  </ol>
+  <p class="small">This is genuine engineering work, not a config switch.</p>
+</section>
+
+<!-- ============================================================= -->
+<section class="section">
+  <h2>3. Install &amp; set up on any (TS/JS) project</h2>
+<pre><code># 1. Install
+npm install buggy          # or: npm install -g buggy for the CLI
+
+# 2. Initialize in your project root
+cd /path/to/your/project
+npx buggy init             # creates .debugger.yaml and .debugger/
+
+# 3. Ignore the working directory
+echo ".debugger/" &gt;&gt; .gitignore</code></pre>
+
+  <h3>Configure <code>.debugger.yaml</code></h3>
+<pre><code>language: typescript
+parser:   { command: tree-sitter-typescript }
+lsp:      { command: typescript-language-server }   # optional
+sandbox:  { runtime: node, memory_limit_mb: 512, timeout_seconds: 60 }
+oracles:  { timeout_threshold_seconds: 10, crash_detection: true,
+            overflow_detection: true, determinism_check_count: 5 }
+probe:    { search_budget: 100, max_refinement_iterations: 10 }
+watchlist:{ enabled: true, scope: layered }   # experience memory (see &sect;8)</code></pre>
+  <div class="callout info">The <code>watchlist.scope</code> defaults to <code>layered</code>: raw episodes stay local, verified lessons are shared with your team via committed steering, and generalized lessons corroborated across &ge;2 projects promote to a personal global store. Set <code>scope: local</code> for sensitive repos.</div>
+</section>
+
+<!-- ============================================================= -->
+<section class="section">
+  <h2>4. The pipeline, stage by stage</h2>
+  <table>
+    <tr><th>Stage</th><th>What happens</th><th>Output</th></tr>
+    <tr><td><strong>Parse</strong></td><td>Fault-tolerant Tree-sitter CST, optional LSP symbol resolution, call graph.</td><td>CST + errors, graph in SQLite</td></tr>
+    <tr><td><strong>Prove</strong></td><td>Backward slice, spec refinement (PROBE loop), specification-aware fuzzing that runs the function on generated inputs looking for a postcondition violation.</td><td>Proof-of-failure certificate, or <code>unconfirmed</code></td></tr>
+    <tr><td><strong>Repair</strong></td><td>AST-aware candidate patches from multiple strategies (guards, expression/return correction, etc.).</td><td>&ge;3 candidate patches</td></tr>
+    <tr><td><strong>Classify</strong></td><td>66-dimension AST-difference vector scored for overfitting; approve below threshold, reject above.</td><td>Approved / rejected patches</td></tr>
+  </table>
+  <p>Terminal statuses: <code>confirmed_and_repaired</code> (bug proven + at least one non-overfit fix), <code>confirmed_no_repair</code> (bug proven, all fixes rejected), <code>unconfirmed</code> (no bug proven), <code>halted</code>.</p>
+</section>
+
+<!-- ============================================================= -->
+<section class="section">
+  <h2>5. Walkthrough: a RAG chatbot (TypeScript)</h2>
+  <p class="lead">A retrieval-augmented chatbot lives or dies on its retrieval math. The classic production incidents are silent: a NaN similarity from an empty embedding, a crash on an empty document set, an infinite loop in a chunker. Here is Buggy run against a real TS RAG pipeline (embeddings, chunking, retrieval). <strong>Every result below is actual output.</strong></p>
+
+  <h3>The code under test</h3>
+<pre><code>// embeddings.ts
+export function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0, normA = 0, normB = 0;
+  for (let i = 0; i &lt; a.length; i++) { dot += a[i]*b[i]; normA += a[i]**2; normB += b[i]**2; }
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));   // zero vector -&gt; 0/0 = NaN
+}
+export function averageEmbeddings(embeddings: number[][]): number[] {
+  const dim = embeddings[0].length;                     // [] -&gt; undefined.length -&gt; throws
+  /* ... */
+}
+// retriever.ts
+export function bm25Score(query: string[], document: string[], avgDocLength: number, ...): number {
+  /* ... document.length / avgDocLength ... */          // avgDocLength 0/null -&gt; NaN
+}</code></pre>
+
+  <h3>Run it</h3>
+<pre><code>buggy investigate cosineSimilarity --file src/embeddings.ts
+buggy investigate averageEmbeddings --file src/embeddings.ts
+buggy investigate bm25Score        --file src/retriever.ts</code></pre>
+
+  <h3>Real results</h3>
+<pre><code>cosineSimilarity   status=confirmed_no_repair
+  proof.test_input  = [[], []]          # two empty embedding vectors
+  observed_output   = NaN
+  violated          = !isNaN(result)
+  patches           = 0 approved, 3 rejected (all flagged overfit)
+
+bm25Score          status=confirmed_no_repair
+  proof.test_input  = [[""], [""], null]  # avgDocLength = null
+  observed_output   = NaN
+  violated          = !isNaN(result)
+  patches           = 0 approved, 3 rejected
+
+averageEmbeddings  status=confirmed_no_repair
+  proof.test_input  = [[]]              # empty embedding set
+  observed_output   = (threw)
+  violated          = function must not throw:
+                      TypeError: Cannot read properties of undefined (reading 'length')
+  patches           = 0 approved, 3 rejected</code></pre>
+
+  <div class="callout ok"><strong>What this proves in practice:</strong> before your chatbot ships, Buggy hands you the exact inputs that break retrieval — an empty embedding makes similarity <code>NaN</code> (every document ties, ranking is garbage), and an empty result set crashes the aggregator. These are certified with a reproducing input, not guessed.</div>
+
+  <div class="callout warn"><strong>Honest note on the fixes:</strong> in all three cases every candidate patch was classified as <em>overfit</em> and rejected, so the status is <code>confirmed_no_repair</code>. Buggy is deliberately conservative: it would rather hand you a proven bug than auto-apply a fix that only satisfies the one failing input. You then write the guard (e.g. return 0 for a zero-norm vector) with the exact trigger in hand.</div>
+
+  <h3>Same thing over MCP (what Kiro/Cursor call)</h3>
+<pre><code>tool: buggy_investigate
+args: { "function_id": "cosineSimilarity", "file_path": "src/embeddings.ts",
+        "postconditions": ["!isNaN(result)", "isFinite(result)"] }
+
+-&gt; { "status": "confirmed_no_repair",
+     "proof": { "test_input": [[],[]], "observed_output": null,
+                "violated_postcondition": "!isNaN(result)" },
+     "approved_patches": 0, "rejected_patches": 3 }</code></pre>
+
+  <h3>Programmatic API</h3>
+<pre><code>import { ProofDebugger } from 'buggy';
+const dbg = new ProofDebugger({ projectRoot: process.cwd() });
+await dbg.initialize();
+const report = await dbg.investigate({
+  functionId: 'cosineSimilarity', filePath: 'src/embeddings.ts',
+  specification: { postconditions: ['!isNaN(result)', 'isFinite(result)'],
+                   parameters: [{name:'a',type:'number[]'},{name:'b',type:'number[]'}],
+                   return_type: 'number' },
+});
+console.log(report.status, report.proof?.test_input);   // confirmed_no_repair [ [], [] ]
+await dbg.shutdown();</code></pre>
+
+  <h3>The memory makes the next run smarter</h3>
+<pre><code>tool: buggy_recall  args: { "function_id": "cosineSimilarity" }
+-&gt; { "seen_before": true,
+     "lessons": [ { "tier": "project", "title": "nan_result in cosineSimilarity",
+                    "what_failed": ["Overfitting risk: ..."], "trigger_shape": "[[],[]]" } ] }</code></pre>
+  <p>With the <em>recall-first</em> hook installed, the next time anyone asks Kiro to touch <code>cosineSimilarity</code>, Kiro is reminded of the proven <code>NaN</code> at <code>[[],[]]</code> and which fix shapes were rejected — so it writes the zero-vector guard directly.</p>
+</section>
+
+<!-- ============================================================= -->
+<section class="section">
+  <h2>6. The execution sandbox — how it actually works</h2>
+  <p class="lead">To prove a bug, Buggy must <em>run</em> your function on generated inputs. Here is exactly how that execution is contained today, stated plainly so you can represent it accurately.</p>
+
+  <h3>What runs your code</h3>
+  <table class="kv">
+    <tr><td>Mechanism</td><td>A <strong>forked Node.js child process</strong>. Buggy writes a small generated runner script to a temp directory, forks it, calls your function, and returns the result to the parent.</td></tr>
+    <tr><td>Result channel</td><td>Results come back over a dedicated <strong>IPC channel</strong>, so anything the function prints to stdout cannot corrupt the result payload.</td></tr>
+    <tr><td>Timeout</td><td>A parent-managed <strong>wall-clock timeout</strong> (default 5s; influenced by <code>oracles.timeout_threshold_seconds</code>). On timeout the child is <code>SIGKILL</code>ed — this is how infinite-loop bugs (e.g. a chunker with <code>overlap &ge; chunkSize</code>) are caught.</td></tr>
+    <tr><td>Scratch space</td><td>Runner scripts are written under the OS temp dir (<code>&lt;tmp&gt;/buggy-exec</code>) and deleted after each run.</td></tr>
+    <tr><td>Edge-value fidelity</td><td><code>NaN</code>, <code>Infinity</code>, <code>-Infinity</code>, and <code>undefined</code> are preserved through sentinels, so the very edge cases that cause bugs are tested faithfully (plain JSON would lose them).</td></tr>
+    <tr><td>TS handling</td><td>TypeScript is stripped to plain JavaScript before execution.</td></tr>
+    <tr><td>Determinism check</td><td>The function can be run N times on the same input to distinguish real bugs from flakes.</td></tr>
+  </table>
+
+  <h3>Oracles (what counts as a failure)</h3>
+  <ul>
+    <li><strong>Crash</strong> — an uncaught exception (e.g. the <code>averageEmbeddings([])</code> <code>TypeError</code> above).</li>
+    <li><strong>Timeout</strong> — exceeds the wall-clock budget (infinite loop / pathological input).</li>
+    <li><strong>Postcondition violation</strong> — output breaks a declared spec (e.g. <code>!isNaN(result)</code>).</li>
+    <li><strong>Non-determinism</strong> — differing outputs across identical runs.</li>
+    <li><strong>Overflow</strong> — integer/numeric overflow detection.</li>
+  </ul>
+
+  <div class="callout danger">
+    <strong>Isolation reality — important for security claims.</strong> The active sandbox is <strong>process-level, not VM-level</strong>. The forked child shares the host filesystem, network, and user privileges of the parent Node process. Memory limits are <em>reported, not OS-enforced</em>. This is fine for analyzing <em>your own</em> code. Do <strong>not</strong> point it at untrusted third-party code expecting containment, and do not market it as "hardware isolation."
+  </div>
+
+  <div class="callout info">
+    <strong>Firecracker microVM — designed, not yet active.</strong> The codebase includes a microVM isolation layer (per-VM memory caps, network egress policy, syscall allow-list, OAP execution passports, a circuit breaker, and a snapshot pool for fast boot). It is <strong>not wired into the default pipeline</strong> — the sandbox agent reports itself unavailable and the subprocess executor is used instead. Treat microVM isolation as roadmap, and enable/validate it before making isolation guarantees.
+  </div>
+</section>
+
+<!-- ============================================================= -->
+<section class="section">
+  <h2>7. Interface reference</h2>
+  <h3>CLI</h3>
+  <table>
+    <tr><th>Command</th><th>Purpose</th></tr>
+    <tr><td><code>buggy init</code></td><td>Create <code>.debugger.yaml</code> + <code>.debugger/</code>.</td></tr>
+    <tr><td><code>buggy analyze &lt;file&gt;</code></td><td>Parse a file; list functions and syntax errors.</td></tr>
+    <tr><td><code>buggy investigate &lt;fn&gt; --file &lt;path&gt;</code></td><td>Run the full pipeline on a function.</td></tr>
+    <tr><td><code>buggy status &lt;id&gt;</code></td><td>Progress of a running/finished investigation.</td></tr>
+    <tr><td><code>buggy halt &lt;id&gt;</code></td><td>Stop an investigation, keep partial results.</td></tr>
+  </table>
+  <p class="small">Global flags: <code>--json</code> (machine-readable), <code>--verbose</code>.</p>
+
+  <h3>MCP tools (7)</h3>
+  <table>
+    <tr><th>Tool</th><th>Purpose</th></tr>
+    <tr><td><code>buggy_init</code></td><td>Initialize the debugger for a project.</td></tr>
+    <tr><td><code>buggy_analyze</code></td><td>Parse a file, return CST analysis + function list.</td></tr>
+    <tr><td><code>buggy_investigate</code></td><td>Run the full Parse&rarr;Prove&rarr;Repair&rarr;Classify pipeline.</td></tr>
+    <tr><td><code>buggy_status</code></td><td>Investigation status.</td></tr>
+    <tr><td><code>buggy_query_graph</code></td><td>Query the semantic graph (callees, node, file graph).</td></tr>
+    <tr><td><code>buggy_list_functions</code></td><td>List function declarations in a file.</td></tr>
+    <tr><td><code>buggy_recall</code></td><td>Recall prior Watchlist lessons before editing/fixing code.</td></tr>
+  </table>
+
+  <h3>API (<code>ProofDebugger</code>)</h3>
+  <p class="small"><code>initialize</code>, <code>parse</code>, <code>investigate</code>, <code>getStatus</code>, <code>halt</code>, <code>queryCallees</code>, <code>queryNode</code>, <code>queryFileGraph</code>, <code>getConfig</code>, <code>recall</code>, <code>watchlistStats</code>, <code>shutdown</code>.</p>
+</section>
+
+<!-- ============================================================= -->
+<section class="section">
+  <h2>8. Watchlist — the experience memory</h2>
+  <p>Every investigation writes one <strong>episode</strong> (what was attempted, what worked, what failed and how). Verified, proof-backed episodes distill into <strong>lessons</strong> that are fed back before the next change.</p>
+  <table>
+    <tr><th>Scope</th><th>Lives in</th><th>Shared with</th></tr>
+    <tr><td>local</td><td><code>.debugger/</code> (git-ignored)</td><td>nobody — raw episodes</td></tr>
+    <tr><td>team</td><td><code>.kiro/steering/buggy-watchlist.md</code> (committed)</td><td>teammates on the repo</td></tr>
+    <tr><td>global</td><td><code>~/.buggy/</code> + user-level steering</td><td>all your projects (sanitized, &ge;2-project corroboration)</td></tr>
+  </table>
+  <ul>
+    <li><strong>Recall</strong>: <code>buggy_recall</code> and <code>ProofDebugger.recall()</code> merge project + global lessons, project winning on conflict.</li>
+    <li><strong>Safety</strong>: only proof-backed lessons promote; the global tier is sanitized of code, paths, and literal values; investigations never modify your source files.</li>
+    <li><strong>Kiro</strong>: the <em>recall-first</em> hook consults the memory before edits; committed team steering means teammates inherit every lesson.</li>
+  </ul>
+</section>
+
+<!-- ============================================================= -->
+<section class="section">
+  <h2>9. Limitations to represent honestly</h2>
+  <table>
+    <tr><th>Area</th><th>Reality today</th></tr>
+    <tr><td>Languages</td><td>TypeScript/JavaScript only. Python and others are not analyzed yet (&sect;2).</td></tr>
+    <tr><td>Isolation</td><td>Process-level (forked Node subprocess), not VM-level. Firecracker microVM is present but inactive (&sect;6).</td></tr>
+    <tr><td>Auto-fix</td><td>Proposes and screens fixes; frequently rejects all candidates as overfit, yielding <code>confirmed_no_repair</code>. Best framed as "proves bugs and screens fixes," not "auto-fixes."</td></tr>
+    <tr><td>Patch validation</td><td>The compile/emulate/test filtering pipeline exists but is not on the default investigate path; candidates are screened for overfitting, not compile/test-verified.</td></tr>
+    <tr><td>Best-fit inputs</td><td>Scalar/numeric functions prove most readily; array/object inputs may need tighter preconditions or return <code>unconfirmed</code>.</td></tr>
+  </table>
+  <div class="callout ok"><strong>Rock-solid today:</strong> TS/JS parsing, bug proving with reproducing certificates, overfitting classification, the CLI / MCP / API surfaces, the Kiro hooks &amp; steering, and the full Watchlist memory — all test-backed (900+ passing tests).</div>
+</section>
+
+<footer>
+  Buggy v0.1.0 &middot; Usage &amp; Sandbox Guide. Examples in &sect;5 are real output from the bundled RAG demo (<code>live-demo/rag-pipeline</code>). Language and sandbox statements reflect the current implementation, not aspirational documentation.
+</footer>
+
+</body>
+</html>
