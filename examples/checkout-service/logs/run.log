@@ -1,0 +1,35 @@
+Buggy end-to-end run — checkout-service
+2026-09-14T10:39:46.588Z
+============================================================
+
+────────────────────────────────────────────────────────────
+  TYPESCRIPT PASS
+────────────────────────────────────────────────────────────
+  analyze  src/pricing.ts         nodes=188 syntax_errors=0
+  analyze  src/inventory.ts       nodes=86 syntax_errors=0
+
+  ✓  applyDiscount         51346ms  unconfirmed          no bug found
+  🐛 pricePerUnit           1347ms  confirmed_no_repair  trigger=[0,0]  →  !isNaN(result)
+  🐛 averageOrderValue      1440ms  confirmed_no_repair  trigger=[[]]  →  !isNaN(result)
+  ✓  taxAmount             51379ms  unconfirmed          no bug found
+  🐛 stockCoverageDays      1268ms  confirmed_no_repair  trigger=[0,0]  →  !isNaN(result)
+  ✓  reorderQuantity       48572ms  unconfirmed          no bug found
+
+────────────────────────────────────────────────────────────
+  PYTHON PASS  (analyze skipped — grammar optional; proving runs via system python)
+────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────
+  PYTHON PASS
+────────────────────────────────────────────────────────────
+
+  🐛 split_payment          3310ms  confirmed_no_repair  trigger=[0,0]  →  function must not throw: ZeroDivisionError: division by zero
+  ✓  bulk_unit_price        3956ms  unconfirmed          no bug found
+  ✓  clamp_percent        182234ms  unconfirmed          no bug found
+
+============================================================
+  SUMMARY: 4 bugs proven / 9 functions
+============================================================
+  Logs written to: D:\Projects\playground\debugger\examples\checkout-service\logs
+    run.log · investigations.jsonl · summary.md · watchlist.log
+  Team memory:  D:\Projects\playground\debugger\examples\checkout-service\.kiro\steering\buggy-watchlist.md

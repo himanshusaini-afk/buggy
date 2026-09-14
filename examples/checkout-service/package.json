@@ -1,0 +1,10 @@
+{
+  "name": "checkout-service-example",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sample project used to demonstrate Buggy end-to-end (proof-carrying bug detection).",
+  "scripts": {
+    "buggy": "node run-buggy.mjs"
+  }
+}

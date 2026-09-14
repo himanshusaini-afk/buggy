@@ -1,0 +1,23 @@
+# Buggy configuration for the checkout-service example.
+language: typescript
+parser:
+  command: tree-sitter-typescript
+lsp:
+  command: typescript-language-server
+sandbox:
+  runtime: node
+  memory_limit_mb: 512
+  timeout_seconds: 30
+oracles:
+  timeout_threshold_seconds: 3
+  crash_detection: true
+  overflow_detection: true
+  determinism_check_count: 2
+probe:
+  search_budget: 30
+  max_refinement_iterations: 5
+watchlist:
+  enabled: true
+  # 'team' keeps everything inside this project: raw episodes in .debugger/ and a
+  # committed lesson file at .kiro/steering/buggy-watchlist.md. No global/home writes.
+  scope: team

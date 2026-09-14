@@ -1,0 +1,9 @@
+{"language":"typescript","file":"src/pricing.ts","function":"applyDiscount","status":"unconfirmed","elapsed_ms":51346,"proof":null,"approved_patches":0,"rejected_patches":0}
+{"language":"typescript","file":"src/pricing.ts","function":"pricePerUnit","status":"confirmed_no_repair","elapsed_ms":1347,"proof":{"test_input":[0,0],"observed_output":null,"violated_postcondition":"!isNaN(result)"},"approved_patches":0,"rejected_patches":3}
+{"language":"typescript","file":"src/pricing.ts","function":"averageOrderValue","status":"confirmed_no_repair","elapsed_ms":1440,"proof":{"test_input":[[]],"observed_output":null,"violated_postcondition":"!isNaN(result)"},"approved_patches":0,"rejected_patches":3}
+{"language":"typescript","file":"src/pricing.ts","function":"taxAmount","status":"unconfirmed","elapsed_ms":51379,"proof":null,"approved_patches":0,"rejected_patches":0}
+{"language":"typescript","file":"src/inventory.ts","function":"stockCoverageDays","status":"confirmed_no_repair","elapsed_ms":1268,"proof":{"test_input":[0,0],"observed_output":null,"violated_postcondition":"!isNaN(result)"},"approved_patches":0,"rejected_patches":3}
+{"language":"typescript","file":"src/inventory.ts","function":"reorderQuantity","status":"unconfirmed","elapsed_ms":48572,"proof":null,"approved_patches":0,"rejected_patches":0}
+{"language":"python","file":"src/discounts.py","function":"split_payment","status":"confirmed_no_repair","elapsed_ms":3310,"proof":{"test_input":[0,0],"violated_postcondition":"function must not throw: ZeroDivisionError: division by zero"},"approved_patches":0,"rejected_patches":3}
+{"language":"python","file":"src/discounts.py","function":"bulk_unit_price","status":"unconfirmed","elapsed_ms":3956,"proof":null,"approved_patches":0,"rejected_patches":0}
+{"language":"python","file":"src/discounts.py","function":"clamp_percent","status":"unconfirmed","elapsed_ms":182234,"proof":null,"approved_patches":0,"rejected_patches":0}

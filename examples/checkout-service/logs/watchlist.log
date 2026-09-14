@@ -1,0 +1,31 @@
+Watchlist experience memory — checkout-service
+2026-09-14T10:45:32.118Z
+============================================================
+
+EPISODES (9 recorded):
+  • [typescript] applyDiscount  outcome=unconfirmed  class=unconfirmed  trigger=undefined
+      lesson_key=typescript:unconfirmed:applyDiscount
+  • [typescript] pricePerUnit  outcome=confirmed_no_repair  class=nan_result  trigger=[0,0]
+      lesson_key=typescript:nan_result:pricePerUnit
+  • [typescript] averageOrderValue  outcome=confirmed_no_repair  class=nan_result  trigger=[[]]
+      lesson_key=typescript:nan_result:averageOrderValue
+  • [typescript] taxAmount  outcome=unconfirmed  class=unconfirmed  trigger=undefined
+      lesson_key=typescript:unconfirmed:taxAmount
+  • [typescript] stockCoverageDays  outcome=confirmed_no_repair  class=nan_result  trigger=[0,0]
+      lesson_key=typescript:nan_result:stockCoverageDays
+  • [typescript] reorderQuantity  outcome=unconfirmed  class=unconfirmed  trigger=undefined
+      lesson_key=typescript:unconfirmed:reorderQuantity
+  • [python] split_payment  outcome=confirmed_no_repair  class=division_by_zero  trigger=[0,0]
+      lesson_key=python:division_by_zero:split_payment
+  • [python] bulk_unit_price  outcome=unconfirmed  class=unconfirmed  trigger=undefined
+      lesson_key=python:unconfirmed:bulk_unit_price
+  • [python] clamp_percent  outcome=unconfirmed  class=unconfirmed  trigger=undefined
+      lesson_key=python:unconfirmed:clamp_percent
+
+RECALL  buggy_recall({ function_id: "pricePerUnit" }):
+  seen_before=true  lessons=1
+  • [project] nan_result in pricePerUnit
+      what_failed: Overfitting risk: top factors - identifier_count, literal_count, nesting_depth
+      trigger: [0,0]
+
+STATS: {"total_episodes":9,"verified":4,"distinct_lessons":9,"outcomes":{"confirmed_no_repair":4,"unconfirmed":5}}
