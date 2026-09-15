@@ -4,24 +4,28 @@
 
 /** Compute cosine similarity between two vectors */
 export function cosineSimilarity(a: number[], b: number[]): number {
+  // Compare only over the shared length; a length mismatch would read past the
+  // shorter vector (undefined) and poison the result with NaN.
+  const len = Math.min(a.length, b.length);
   let dot = 0, normA = 0, normB = 0;
-  for (let i = 0; i < a.length; i++) {
+  for (let i = 0; i < len; i++) {
     dot += a[i] * b[i];
     normA += a[i] ** 2;
     normB += b[i] ** 2;
   }
   const magnitude = Math.sqrt(normA) * Math.sqrt(normB);
-  // A zero-length vector has no direction; similarity is undefined, so return 0
-  // instead of 0 / 0 = NaN, which would silently corrupt every downstream ranking.
-  if (magnitude === 0) return 0;
-  return dot / magnitude;
+  if (magnitude === 0) return 0; // zero-length vector — similarity undefined
+  const sim = dot / magnitude;
+  // Never emit NaN/Infinity (e.g. from NaN/Infinity components); 0 = "no signal".
+  return Number.isFinite(sim) ? sim : 0;
 }
 
 /** Normalize a vector to unit length */
 export function normalizeVector(vec: number[]): number[] {
   const magnitude = Math.sqrt(vec.reduce((sum, v) => sum + v * v, 0));
-  // A zero vector cannot be normalized (0 / 0 = NaN); leave it as zeros.
-  if (magnitude === 0) return vec.map(() => 0);
+  // A zero vector cannot be normalized (0 / 0 = NaN); a non-finite magnitude
+  // (NaN/Infinity from bad inputs) is equally unnormalizable — leave it as zeros.
+  if (!Number.isFinite(magnitude) || magnitude === 0) return vec.map(() => 0);
   return vec.map(v => v / magnitude);
 }
 

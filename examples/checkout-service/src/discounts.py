@@ -1,17 +1,21 @@
 """Checkout discounts (Python).
 
-NOTE: Contains intentional bugs so Buggy can prove them by execution.
-See WORKFLOW.md for the run and the fixes.
+Originally shipped with intentional bugs Buggy proved by execution
+(see WORKFLOW.md); the guards below are the applied fixes.
 """
 
 
 def split_payment(total, people):
-    # BUG: people == 0 -> ZeroDivisionError.
+    # Guard division by zero (would raise ZeroDivisionError).
+    if people == 0:
+        return 0.0
     return total / people
 
 
 def bulk_unit_price(total, quantity):
-    # BUG: quantity == 0 -> ZeroDivisionError.
+    # Guard division by zero (would raise ZeroDivisionError).
+    if quantity == 0:
+        return 0.0
     return total / quantity
 
 

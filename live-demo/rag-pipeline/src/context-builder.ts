@@ -37,9 +37,11 @@ export function buildContext(
 
 /** Calculate context utilization percentage */
 export function contextUtilization(usedTokens: number, maxTokens: number): number {
-  // No (or non-positive) budget means 0% utilization; avoids 0/0 = NaN and x/0 = Infinity.
-  if (maxTokens <= 0) return 0;
-  return (usedTokens / maxTokens) * 100;
+  // No positive, finite budget means 0% utilization. `!(maxTokens > 0)` also
+  // catches NaN, which slips past a plain `<= 0` check.
+  if (!(maxTokens > 0)) return 0;
+  const pct = (usedTokens / maxTokens) * 100;
+  return Number.isFinite(pct) ? pct : 0;
 }
 
 /** Merge overlapping chunks */

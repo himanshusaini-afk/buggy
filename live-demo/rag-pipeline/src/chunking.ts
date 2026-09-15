@@ -60,6 +60,8 @@ export function chunkBySentence(text: string, maxSentencesPerChunk: number): Chu
 
 /** Calculate optimal chunk size based on average token length */
 export function optimalChunkSize(targetTokens: number, avgCharsPerToken: number): number {
-  // Chunk size must be positive; non-positive inputs would yield a useless 0/negative size.
-  return Math.max(1, targetTokens * avgCharsPerToken);
+  const size = targetTokens * avgCharsPerToken;
+  // Chunk size must be a positive, finite value; non-finite (NaN/Infinity) or
+  // non-positive inputs fall back to a minimum of 1.
+  return Number.isFinite(size) ? Math.max(1, size) : 1;
 }

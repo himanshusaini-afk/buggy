@@ -1,26 +1,30 @@
 /**
  * Checkout pricing calculations.
  *
- * NOTE: This file contains intentional bugs so Buggy has something to prove.
- * See WORKFLOW.md for the run and the fixes.
+ * These functions originally shipped with intentional bugs that Buggy proved
+ * (see WORKFLOW.md); the guards below are the applied fixes. Re-running Buggy
+ * now reports them clean.
  */
 
 /** Apply a percentage discount to a price. */
 export function applyDiscount(price: number, percentOff: number): number {
-  // BUG: percentOff > 100 produces a NEGATIVE price (no clamp on the discount).
-  return price - price * (percentOff / 100);
+  // Clamp the discount to [0, 100] so the price can never go negative.
+  const pct = Math.max(0, Math.min(100, percentOff));
+  return price - price * (pct / 100);
 }
 
 /** Price per unit for a bulk line item. */
 export function pricePerUnit(total: number, quantity: number): number {
-  // BUG: quantity === 0 -> Infinity; total & quantity both 0 -> NaN.
+  // Guard division by zero (would produce Infinity/NaN).
+  if (quantity === 0) return 0;
   return total / quantity;
 }
 
 /** Average value across a set of orders. */
 export function averageOrderValue(orders: number[]): number {
+  // Empty order set has no average — return 0 instead of 0 / 0 = NaN.
+  if (orders.length === 0) return 0;
   const sum = orders.reduce((a, b) => a + b, 0);
-  // BUG: empty orders -> 0 / 0 = NaN.
   return sum / orders.length;
 }
 
