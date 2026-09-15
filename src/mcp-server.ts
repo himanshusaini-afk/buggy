@@ -355,8 +355,26 @@ async function handleInvestigate(args: Record<string, unknown>): Promise<ToolRes
             uniqueness_verified_at: report.proof.uniqueness_verified_at,
           }
         : null,
-      approved_patches: report.approved_patches.length,
-      rejected_patches: report.rejected_patches.length,
+      approved_count: report.approved_patches.length,
+      rejected_count: report.rejected_patches.length,
+      // Full candidate fixes so a human can review and decide: each carries the
+      // diff, its target location, and an overfitting score. Buggy never applies
+      // these itself — applying (or not) is always the caller's decision.
+      approved_patches: report.approved_patches.map((p) => ({
+        id: p.patch.id,
+        overfitting_probability: p.classification.overfitting_probability,
+        target_file: p.patch.target_file,
+        target_range: p.patch.target_range,
+        diff: p.patch.diff,
+      })),
+      rejected_patches: report.rejected_patches.map((p) => ({
+        id: p.patch.id,
+        overfitting_probability: p.classification.overfitting_probability,
+        rejection_reason: p.rejection_reason,
+        target_file: p.patch.target_file,
+        target_range: p.patch.target_range,
+        diff: p.patch.diff,
+      })),
       timeline: report.timeline.map((t) => ({
         phase: t.phase,
         agent: t.agent,

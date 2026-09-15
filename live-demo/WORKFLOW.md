@@ -219,20 +219,44 @@ same pre/postconditions shown in §3.
                     fix is honest              no honest fix
                           |                         |
                           v                         v
-              "Bug found AND fixed"      "Bug found, NO fix given"
               confirmed_and_repaired      confirmed_no_repair
-              (patch offered)             (you get the exact trigger,
-                                           you fix it yourself)
+              "Bug found, fix PROPOSED"   "Bug found, NO fix"
+                          |                         |
+                          v                         v
+              [6] YOU DECIDE:             you get the exact
+                  Buggy shows the diff        trigger and write
+                  + overfitting score.        the guard yourself
+                  It NEVER edits your
+                  code on its own — you
+                  apply it (or don't)
 ```
 
 **In one breath:** you tell Buggy what "correct" means, it hammers the function
 with inputs until it either gives up (no bug found) or breaks the rule. If it
 breaks the rule, it re-runs the bad input to prove the failure is real, then tries
-to fix it — but it throws away any fix that only band-aids that one input. You
-end up with either a trusted patch or a certified bug with the exact trigger.
+to fix it — but it throws away any fix that only band-aids that one input. Then it
+hands you the result: either a **proposed** patch (with its overfitting score) or a
+certified bug with the exact trigger. Either way, **you** make the final call.
 
 In our demo, all four functions reached step 3 (proven), and `splitExpense` went
 on through steps 4–5 where every fix was rejected → `confirmed_no_repair`.
+
+### Who applies the fix? (there's always a human in the loop)
+
+Buggy's engine is **read-only against your source** — `investigate` proves the bug
+and *proposes* fixes, but it never writes to your files. How you see and decide on a
+fix depends on how you run it:
+
+| How you run it | What you get | Who applies |
+|---|---|---|
+| **CLI** `investigate --verbose` | Prints each approved patch: the diff + overfitting % | You, by hand |
+| **API** `investigate()` | `report.approved_patches[].patch.diff` (+ `overfitting_probability`) | You, in your script |
+| **MCP** `buggy_investigate` (Kiro) | Returns the `approved_patches`/`rejected_patches` arrays — diff, overfitting score, target file + line range | Kiro presents them and applies only the one you approve |
+
+The only automation is the optional **`buggy-auto-fix` hook**. It now runs in
+*present-and-ask* mode: after a task it surfaces any proven bug and its approved
+fix (diff + overfitting score) and applies only the patch you choose. Disable the
+hook if you don't want Buggy to even look automatically.
 
 ---
 
