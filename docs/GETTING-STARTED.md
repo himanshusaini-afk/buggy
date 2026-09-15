@@ -6,23 +6,28 @@ function, **proves** the bug reproduces, proposes fixes, and rejects fixes that
 only paper over the failing test. It runs as a CLI, an MCP server (for Kiro /
 Cursor / Windsurf), and a programmatic API, and it remembers what it learns.
 
-- **Full support:** TypeScript, JavaScript.
-- **Python:** bug proving works today; `analyze`/`list_functions` need an optional grammar (see §10).
-- **Requires:** Node.js ≥ 18.
+- **Full support:** TypeScript, JavaScript, and Python — the Tree-sitter grammars are bundled.
+- **Requires:** Node.js ≥ 18. Python bug proving also needs a `python` interpreter on `PATH`.
 
 ---
 
 ## 1. Install
 
-Add it as a dev dependency (recommended) or install globally for the CLI.
+> The npm name `buggy` is a **different, unrelated package**. Install this one from
+> GitHub — it builds itself on install (the `prepare` script runs `tsc`).
+
+Install globally for the CLI, or add it as a project dependency.
 
 ```bash
-npm install --save-dev buggy      # project-local
+npm install -g github:himanshusaini-afk/buggy      # global CLI
 # or
-npm install -g buggy              # global CLI
+npm install github:himanshusaini-afk/buggy         # project-local
 ```
 
 This gives you two executables: `buggy` (CLI) and `buggy-mcp` (MCP server).
+
+Prefer building from source? `git clone` the repo, then `npm install` (which also
+builds `dist/`), and optionally `npm link` to expose the commands globally.
 
 ---
 
@@ -180,7 +185,10 @@ Point Kiro at the MCP server once, then it calls Buggy automatically.
 
 ```jsonc
 // .kiro/settings/mcp.json  (workspace)  — or ~/.kiro/settings/mcp.json (all projects)
-{ "mcpServers": { "buggy": { "command": "npx", "args": ["buggy-mcp"] } } }
+// After `npm install -g github:himanshusaini-afk/buggy`, buggy-mcp is a global command:
+{ "mcpServers": { "buggy": { "command": "buggy-mcp" } } }
+// No global install? Run it straight from the repo without installing:
+// { "mcpServers": { "buggy": { "command": "npx", "args": ["-p", "github:himanshusaini-afk/buggy", "buggy-mcp"] } } }
 ```
 
 Buggy ships **7 MCP tools** Kiro can call: `buggy_init`, `buggy_analyze`,
@@ -263,24 +271,19 @@ sandbox: { runtime: python, timeout_seconds: 30 }
 ```
 
 ```bash
-npx buggy investigate split_expense --file src/expenses.py
+buggy investigate split_expense --file src/expenses.py
 # status: confirmed_no_repair
 # proof.test_input: [0, 0]  →  ZeroDivisionError: division by zero
 ```
 
-Buggy runs the function in your system `python` to prove the bug (no grammar needed).
-Language-specific behavior is captured faithfully — e.g. `x / 0` **raises** in
-Python (vs. `Infinity` in JS).
+Buggy runs the function in your system `python` to prove the bug, so language-specific
+behavior is captured faithfully — e.g. `x / 0` **raises** in Python (vs. `Infinity` in JS).
 
-**One caveat:** Python `analyze` / `list_functions` (CST features) need the
-Tree-sitter Python grammar. Install it once in an environment with npm access —
-the parser detects it automatically, no code change:
-
-```bash
-npm install tree-sitter-python --legacy-peer-deps
-```
-
-Until then, Python **proving works**; only Python parsing/analyze is degraded.
+The Tree-sitter **Python grammar is bundled**, so `analyze` and `list_functions`
+work out of the box too — no extra install. One thing to get right: the grammar is
+chosen from the project's `language` setting, so make sure `.debugger.yaml` says
+`language: python`. (Running `analyze`/`list_functions` on a `.py` file inside a
+`typescript` project parses it with the wrong grammar and finds nothing.)
 
 ---
 

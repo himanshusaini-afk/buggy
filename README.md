@@ -5,16 +5,17 @@ A multi-agent system that autonomously analyzes code, proves bugs exist with for
 ## Quick Start
 
 ```bash
-# Install
-npm install buggy
+# Install from GitHub. NOTE: the npm name "buggy" is a different, unrelated
+# package — install from this repo, not `npm install buggy`.
+npm install -g github:himanshusaini-afk/buggy
 
 # Initialize in your project
 cd /path/to/your/project
-npx buggy init
+buggy init
 
 # Edit .debugger.yaml to match your project setup, then:
-npx buggy analyze src/payments.ts
-npx buggy investigate processPayment --file src/payments.ts
+buggy analyze src/payments.ts
+buggy investigate processPayment --file src/payments.ts
 ```
 
 ## Kiro Integration
@@ -64,22 +65,34 @@ See the [Usage Guide](docs/USAGE-GUIDE.md) for the full list and customization o
 
 ## Installation
 
+> **Note:** the npm package name `buggy` belongs to an unrelated project. Install
+> this one from GitHub. It builds itself on install via the `prepare` script, so
+> you get the compiled `dist/` automatically.
+
 ```bash
-npm install buggy
+# Global — gives you the `buggy` (CLI) and `buggy-mcp` (MCP server) commands
+npm install -g github:himanshusaini-afk/buggy
+buggy --help
+
+# Or as a project dependency
+npm install github:himanshusaini-afk/buggy
 ```
 
-Or install globally for CLI access:
+Or clone and build from source:
 
 ```bash
-npm install -g buggy
-buggy --help
+git clone https://github.com/himanshusaini-afk/buggy.git
+cd buggy
+npm install      # installs deps and builds dist/ (prepare script)
+npm link         # optional: expose `buggy` / `buggy-mcp` globally
 ```
 
 ### Requirements
 
 - Node.js >= 18.0.0
-- A Tree-sitter grammar for your language
+- Tree-sitter grammars for TypeScript/JavaScript and Python are **bundled** — no separate grammar install needed
 - An LSP server for symbol resolution (optional but recommended)
+- For Python bug proving: a `python` interpreter on `PATH` (functions are executed in a real Python process)
 
 ## Integration Guide
 

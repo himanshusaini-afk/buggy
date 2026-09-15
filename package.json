@@ -38,6 +38,7 @@
   },
   "scripts": {
     "start": "node dist/cli.js",
+    "prepare": "npm run build",
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -49,6 +50,7 @@
     "@modelcontextprotocol/sdk": "1.12.1",
     "better-sqlite3": "11.7.0",
     "tree-sitter": "0.22.4",
+    "tree-sitter-python": "0.23.6",
     "tree-sitter-typescript": "0.23.2",
     "yaml": "2.7.1",
     "zod": "3.24.4"
