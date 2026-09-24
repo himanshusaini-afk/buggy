@@ -22,6 +22,8 @@ import type {
 } from '../types/repair.js';
 import { MAX_REFINEMENT_ATTEMPTS } from '../types/repair.js';
 import type { McpToolResult } from '../types/mcp.js';
+import type { RepairDialect } from './repair-dialects.js';
+import { analyzeTrigger, renderTriggerCondition, selectDialect } from './repair-dialects.js';
 
 /** The ±10 lines radius around the defect line for the context window. */
 export const CONTEXT_WINDOW_RADIUS = 10;
@@ -77,9 +79,17 @@ interface PatchGenerationResult {
 export class RepairAgent {
   private router: McpRouter;
   private strategies: PatchStrategy[];
+  /** Target-language syntax used to emit every patch. */
+  private dialect: RepairDialect;
 
-  constructor(router: McpRouter) {
+  /**
+   * @param router - MCP router supplying read_range / extract_method / write_fix.
+   * @param language - Target language (e.g. `python`). Defaults to TypeScript so
+   *                   existing callers keep their current behavior.
+   */
+  constructor(router: McpRouter, language?: string) {
     this.router = router;
+    this.dialect = selectDialect(language);
     this.strategies = this.buildStrategies();
   }
 
@@ -496,8 +506,9 @@ export class RepairAgent {
       };
 
       const guardCondition = this.buildGuardCondition(context, proof);
+      if (!guardCondition) continue;
       const indent = lineContent.match(/^(\s*)/)?.[1] ?? '';
-      const patchDiff = `${indent}if (${guardCondition}) {\n${lineContent}\n${indent}}`;
+      const patchDiff = this.dialect.wrapInConditional(guardCondition, lineContent, indent);
 
       const candidate: PatchCandidate = {
         id: randomUUID(),
@@ -522,20 +533,24 @@ export class RepairAgent {
   private buildGuardCondition(
     context: DefectContext,
     proof: ProofOfFailureCertificate
-  ): string {
-    // Use variable states from the defect context to form a meaningful guard
-    if (context.variable_states.length > 0) {
-      const firstVar = context.variable_states[0];
-      if (firstVar.type === 'number') {
-        return `${firstVar.name} !== undefined && !isNaN(${firstVar.name})`;
-      }
-      if (firstVar.type === 'string') {
-        return `${firstVar.name} !== null && ${firstVar.name} !== undefined`;
-      }
-      return `${firstVar.name} != null`;
+  ): string | null {
+    // Preferred: derive the condition from the input the proof shows to fail, so
+    // the guard addresses the actual defect (e.g. `quantity == 0`) rather than an
+    // unrelated null check. Returns null for clamp-only triggers.
+    const trigger = analyzeTrigger(proof, context);
+    if (trigger) {
+      const rendered = renderTriggerCondition(trigger, this.dialect);
+      if (rendered) return rendered;
     }
 
-    return 'true /* guard condition */';
+    // Fallback: no actionable shape in the proof — guard the first known
+    // parameter against a missing value, in the target language's syntax.
+    const firstVar = context.variable_states[0];
+    if (firstVar) {
+      return this.dialect.isNullish(firstVar.name);
+    }
+
+    return null;
   }
 
   /**
@@ -570,10 +585,15 @@ export class RepairAgent {
 
         const indent = defectLine.match(/^(\s*)/)?.[1] ?? '';
         const guardCondition = this.buildGuardCondition(context, proof);
-        const postcondition = proof.violated_postcondition;
+        if (!guardCondition) return null;
 
-        // Generate an early-return guard
-        const diff = `${indent}if (!(${guardCondition})) {\n${indent}  return ${this.inferDefaultReturn(context)};\n${indent}}`;
+        // Early-return guard on the proven trigger, emitted in the target
+        // language (braces for TS, an indented block for Python).
+        const diff = this.dialect.guardEarlyReturn(
+          guardCondition,
+          this.inferDefaultReturn(context),
+          indent
+        );
 
         const editOp: AstEditOperation = {
           type: 'insert',
@@ -622,7 +642,7 @@ export class RepairAgent {
         if (!operatorMatch) return null;
 
         const [, lhs, operator, rhs] = operatorMatch;
-        const correctedOperator = this.suggestOperatorCorrection(operator);
+        const correctedOperator = this.dialect.correctOperator(operator!);
         const indent = defectLine.match(/^(\s*)/)?.[1] ?? '';
         const diff = `${indent}${lhs!.trimStart()} ${correctedOperator} ${rhs!.trimEnd()}`;
 
@@ -679,7 +699,7 @@ export class RepairAgent {
 
         // Generate a corrected return based on the postcondition
         const correctedValue = this.inferCorrectedReturn(context, proof);
-        const diff = `${indent}return ${correctedValue};`;
+        const diff = this.dialect.returnStatement(correctedValue, indent);
 
         const editOp: AstEditOperation = {
           type: 'replace',
@@ -724,18 +744,28 @@ export class RepairAgent {
         if (!defectLine) return null;
 
         const indent = defectLine.match(/^(\s*)/)?.[1] ?? '';
-        const targetVar = context.variable_states[0];
 
-        // Generate a corrective assignment based on variable type
+        // Prefer a parameter the proof flagged as out-of-range (e.g. a 150%
+        // discount): clamping it addresses the proven failure directly.
+        const trigger = analyzeTrigger(_proof, context);
+        const clampTarget = trigger?.clampTargets[0];
+        const targetVar = clampTarget
+          ? (context.variable_states.find((v) => v.name === clampTarget) ??
+             context.variable_states[0]!)
+          : context.variable_states[0]!;
+
+        // Generate a corrective assignment based on variable type, in the
+        // target language's syntax.
+        const d = this.dialect;
         let assignment: string;
-        if (targetVar.type === 'number') {
-          assignment = `${indent}${targetVar.name} = Math.max(0, ${targetVar.name});`;
-        } else if (targetVar.type === 'string') {
-          assignment = `${indent}${targetVar.name} = ${targetVar.name} ?? '';`;
+        if (targetVar.type === 'number' || targetVar.type === 'int' || targetVar.type === 'float') {
+          assignment = d.assign(targetVar.name, d.clampMin(targetVar.name, '0'), indent);
+        } else if (targetVar.type === 'string' || targetVar.type === 'str') {
+          assignment = d.assign(targetVar.name, d.coalesce(targetVar.name, d.defaultForType('string')), indent);
         } else if (targetVar.type === 'array' || targetVar.type.endsWith('[]')) {
-          assignment = `${indent}${targetVar.name} = ${targetVar.name} ?? [];`;
+          assignment = d.assign(targetVar.name, d.coalesce(targetVar.name, d.defaultForType('array')), indent);
         } else {
-          assignment = `${indent}${targetVar.name} = ${targetVar.name} ?? null;`;
+          assignment = d.assign(targetVar.name, d.coalesce(targetVar.name, d.defaultForType('unknown')), indent);
         }
 
         const diff = assignment;
@@ -781,20 +811,16 @@ export class RepairAgent {
         const defectLine = content.lines[lineIndex];
         if (!defectLine || defectLine.trim() === '') return null;
 
-        // Only delete if the line looks like an expression statement (not a control structure)
+        // Only delete a plain expression statement. Never remove a declaration
+        // or block opener — that would destroy the function instead of repairing
+        // it, and such patches can score deceptively low on AST-difference
+        // overfitting metrics.
         const trimmed = defectLine.trim();
-        if (
-          trimmed.startsWith('if') ||
-          trimmed.startsWith('for') ||
-          trimmed.startsWith('while') ||
-          trimmed.startsWith('function') ||
-          trimmed.startsWith('class') ||
-          trimmed.startsWith('return')
-        ) {
+        if (this.dialect.isStructuralLine(trimmed)) {
           return null;
         }
 
-        const diff = `// REMOVED: ${defectLine.trim()}`;
+        const diff = this.dialect.lineComment(`REMOVED: ${defectLine.trim()}`);
 
         const editOp: AstEditOperation = {
           type: 'delete',
@@ -821,39 +847,11 @@ export class RepairAgent {
   }
 
   /**
-   * Suggest a corrected operator based on common operator mistakes.
-   */
-  private suggestOperatorCorrection(operator: string): string {
-    const corrections: Record<string, string> = {
-      '<': '<=',
-      '>': '>=',
-      '<=': '<',
-      '>=': '>',
-      '==': '===',
-      '!=': '!==',
-      '===': '!==',
-      '!==': '===',
-      '+': '-',
-      '-': '+',
-      '*': '/',
-      '/': '*',
-      '&&': '||',
-      '||': '&&',
-    };
-    return corrections[operator] ?? operator;
-  }
-
-  /**
-   * Infer a default return value based on the function specification's return type.
+   * Infer a default return value based on the function specification's return
+   * type, expressed in the target language (`None` vs `null`, `0.0` vs `0`).
    */
   private inferDefaultReturn(context: DefectContext): string {
-    const returnType = context.specification.return_type;
-    if (returnType === 'number') return '0';
-    if (returnType === 'string') return "''";
-    if (returnType === 'boolean') return 'false';
-    if (returnType.endsWith('[]')) return '[]';
-    if (returnType === 'void') return '';
-    return 'null';
+    return this.dialect.defaultForType(context.specification.return_type);
   }
 
   /**

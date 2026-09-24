@@ -13,6 +13,16 @@ export type { BugProvingAgentConfig } from './bug-proving-agent.js';
 
 export { RepairAgent } from './repair-agent.js';
 
+// Repair dialects — implement RepairDialect to teach the repair agent a new language.
+export {
+  selectDialect,
+  typescriptDialect,
+  pythonDialect,
+  analyzeTrigger,
+  renderTriggerCondition,
+} from './repair-dialects.js';
+export type { RepairDialect, TriggerGuard, TriggerCondition } from './repair-dialects.js';
+
 export { ClassifierAgent, DefaultPrismApccModel } from './classifier-agent.js';
 export type { ClassifierConfig, PrismApccModel } from './classifier-agent.js';
 

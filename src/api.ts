@@ -392,7 +392,9 @@ export class ProofDebugger {
     // so investigations generate candidate patches WITHOUT ever mutating the
     // user's source files. The classifier is pure in-memory AST analysis over
     // the parsed CST (its only side effect is a harmless patches-table update).
-    const repairAgent = new RepairAgent(this.buildRepairRouter());
+    // `language` selects the repair dialect so emitted patches are valid source
+    // in the target language (Python guards, not TypeScript braces).
+    const repairAgent = new RepairAgent(this.buildRepairRouter(), this.config!.language);
     const classifierAgent = new ClassifierAgent(this.db!);
 
     return {
