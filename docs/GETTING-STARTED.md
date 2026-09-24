@@ -36,19 +36,33 @@ builds `dist/`), and optionally `npm link` to expose the commands globally.
 From your project root:
 
 ```bash
-npx buggy init
+buggy init
 ```
 
-This creates:
+`init` detects your project's language and asks a few short questions (every one
+has a default, so you can just press Enter):
 
-- `.debugger.yaml` — configuration.
-- `.debugger/` — working directory (SQLite graph DB + the local watchlist memory).
+- **Primary language** — pre-filled from the files it found. This is the important
+  one: it selects both the Tree-sitter grammar and the runtime used to prove bugs.
+- **Search effort** — quick (30 inputs) / balanced (100) / thorough (300).
+- **Per-function timeout** — how long a single call may run before it counts as a hang.
+- **Memory scope** — local / team / global / layered (see §9).
+- **Add `.debugger/` to `.gitignore`** — done for you if you say yes.
 
-Then git-ignore the working directory (keep the config):
+It writes `.debugger.yaml` (tailored to your answers) and `.debugger/` (SQLite
+graph DB + local watchlist memory). No hand-editing required.
+
+Scripted or CI setup — skip the prompts:
 
 ```bash
-echo ".debugger/" >> .gitignore
+buggy init --yes                       # accept detected defaults
+buggy init --language python --yes     # force the language
+buggy init --json                      # machine-readable, never prompts
+buggy init --force                     # regenerate over an existing config
 ```
+
+Prompts are also skipped automatically when stdin isn't a terminal, so `init` is
+safe in pipelines. Re-run `buggy init --force` any time your setup changes.
 
 ---
 

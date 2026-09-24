@@ -9,11 +9,11 @@ A multi-agent system that autonomously analyzes code, proves bugs exist with for
 # package — install from this repo, not `npm install buggy`.
 npm install -g github:himanshusaini-afk/buggy
 
-# Initialize in your project
+# Initialize in your project — detects your language and asks a few questions
 cd /path/to/your/project
-buggy init
+buggy init            # or: buggy init --yes  (accept detected defaults)
 
-# Edit .debugger.yaml to match your project setup, then:
+# Ready to use — no config editing needed
 buggy analyze src/payments.ts
 buggy investigate processPayment --file src/payments.ts
 ```
@@ -96,35 +96,33 @@ npm link         # optional: expose `buggy` / `buggy-mcp` globally
 
 ## Integration Guide
 
-### 1. Add configuration to your project
+### 1. Run the setup wizard
 
-Run `buggy init` in your project root. This creates:
+Run `buggy init` in your project root. It detects your language, asks a few
+questions, and creates:
 
-- `.debugger.yaml` — configuration file
-- `.debugger/` — working directory for the graph database
+- `.debugger.yaml` — configuration tailored to your answers
+- `.debugger/` — working directory for the graph database (added to `.gitignore` for you)
 
-### 2. Configure for your language
-
-Edit `.debugger.yaml` to match your project:
+That's the whole setup. The generated config picks the right grammar, LSP command,
+and sandbox runtime for the language you chose, for example:
 
 ```yaml
-language: typescript
+language: python
 parser:
-  command: tree-sitter-typescript
+  command: tree-sitter-python
 lsp:
-  command: typescript-language-server
+  command: pylsp
 sandbox:
-  runtime: node
+  runtime: python
   memory_limit_mb: 512
   timeout_seconds: 60
 ```
 
-### 3. Add to .gitignore
+### 2. Adjust later if you want
 
-```gitignore
-# Buggy
-.debugger/
-```
+Everything remains a plain YAML file you can tune (see the Configuration Reference
+below), or just re-run `buggy init --force` to regenerate it.
 
 ## Programmatic API
 
@@ -206,12 +204,21 @@ interface ProofDebuggerOptions {
 
 ### `buggy init`
 
-Creates a `.debugger.yaml` template and `.debugger/` directory in the current working directory.
+Sets up Buggy for the current project. Detects the primary language from your
+source files, then asks a few questions (language, search effort, per-function
+timeout, memory scope, gitignore) — each with a default, so pressing Enter through
+them is fine. Writes a tailored `.debugger.yaml` plus the `.debugger/` directory.
 
 ```bash
-buggy init
-buggy init --json  # Machine-readable output
+buggy init                          # interactive
+buggy init --yes                    # accept detected defaults, no prompts
+buggy init --language python --yes  # force the language (typescript|javascript|python)
+buggy init --force                  # regenerate over an existing config
+buggy init --json                   # machine-readable; never prompts
 ```
+
+Prompts are skipped automatically when stdin is not a terminal, so this is safe in
+CI.
 
 ### `buggy analyze <file>`
 
@@ -263,9 +270,8 @@ buggy halt inv_1234567890_abc1234
 The `.debugger.yaml` file controls all aspects of the debugger. Here's the full schema:
 
 ```yaml
-# Required
-version: "1.0"
-language: typescript    # Primary project language
+# Required — selects the Tree-sitter grammar AND the execution runtime
+language: typescript    # typescript | javascript | python
 
 # Parser configuration
 parser:

@@ -339,25 +339,68 @@ Creates a fresh configuration in the current directory.
 - Does NOT overwrite an existing `.debugger.yaml`
 
 **When to re-run:**
-- After deleting `.debugger.yaml` to get a fresh template
+- With `--force`, to regenerate the config after your setup changes
 - After upgrading the debugger (new config fields may be available)
 
 **Example:**
 
 ```bash
 $ buggy init
+
+  Let's set up Buggy for this project.
+  Press Enter to accept the [default] for any question.
+
+  Detected a mostly python project.
+
+Primary language
+    1) typescript
+    2) javascript
+    3) python  [default]
+  > 
+
+How hard should Buggy search for bugs?
+    1) quick     (30 inputs — fast feedback)
+    2) balanced  (100 inputs — recommended)  [default]
+    3) thorough  (300 inputs — slower, finds more)
+  > 
+
+Max seconds a single function may run [60]: 
+
+Share what Buggy learns?
+    1) local    (private to you)
+    2) team     (commit lessons for teammates)
+    3) global   (reuse across your projects)
+    4) layered  (all of the above — recommended)  [default]
+  > 
+
+Add .debugger/ to .gitignore? [Y/n]: 
+
 ✓ Created .debugger.yaml
 ✓ Created .debugger/ directory
+✓ Added .debugger/ to .gitignore
 
-  Edit .debugger.yaml to configure the debugger for your project.
-  Then run: buggy analyze <file>
+  Language:      python
+  Search budget: 100 (balanced)
+  Memory scope:  layered
+
+  Note: Bug proving runs your functions in "python". Make sure it is on PATH
+        (override with the BUGGY_PYTHON environment variable).
+
+  Next: buggy analyze <file>
 ```
 
-With `--json`:
+Skip the prompts entirely (also automatic when stdin is not a terminal):
+
+```bash
+$ buggy init --yes                      # accept detected defaults
+$ buggy init --language python --yes    # force the language
+```
+
+With `--json` (never prompts):
 
 ```bash
 $ buggy init --json
-{"created":[".debugger.yaml",".debugger/"]}
+{"created":[".debugger.yaml",".debugger/"],"language":"python","search_budget":100,"timeout_seconds":60,"watchlist_scope":"layered","gitignore":"created"}
 ```
 
 If the config already exists:
