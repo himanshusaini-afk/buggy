@@ -1,0 +1,7 @@
+# Buggy working directory (graph DB + raw episode store — per-developer)
+.debugger/
+
+# The repo root ignores *.log, but this example's logs ARE the deliverable:
+# they are the recorded output of a real run. Keep them tracked.
+!logs/run.log
+!logs/watchlist.log
