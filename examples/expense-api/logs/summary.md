@@ -1,6 +1,6 @@
 # Buggy findings — expense-api
 
-_Generated 2026-09-24T09:43:35.849Z_
+_Generated 2026-09-24T11:04:15.265Z_
 
 **3 bugs proven** across 7 functions (4 reported clean).
 

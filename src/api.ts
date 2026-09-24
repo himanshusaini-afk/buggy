@@ -33,6 +33,12 @@ import { GraphQueries } from './database/graph-queries.js';
 import { ParserAgent } from './agents/parser-agent.js';
 import { BugProvingAgent } from './agents/bug-proving-agent.js';
 import { RepairAgent } from './agents/repair-agent.js';
+import {
+  collectNonCodeLines,
+  extractSignature,
+  findFunctionRange,
+} from './agents/signature-extractor.js';
+import type { ExtractedSignature } from './agents/signature-extractor.js';
 import { ClassifierAgent } from './agents/classifier-agent.js';
 import { McpRouter } from './middleware/mcp-router.js';
 import { AgentOrchestrator } from './orchestrator/orchestrator.js';
@@ -218,12 +224,27 @@ export class ProofDebugger {
 
     const resolvedPath = this.resolvePath(options.filePath);
 
+    // When the caller supplies no parameter list, recover it from the source.
+    // Otherwise the fuzzer has no arity to work with and calls the target with a
+    // single argument, which surfaces as a bogus "missing positional argument"
+    // failure rather than a real defect. An explicit specification always wins.
+    let parameters = options.specification?.parameters ?? [];
+    let returnType = options.specification?.return_type ?? 'unknown';
+
+    if (parameters.length === 0) {
+      const inferred = await this.inferSignature(resolvedPath, options.functionId);
+      if (inferred) {
+        parameters = inferred.parameters;
+        if (returnType === 'unknown') returnType = inferred.return_type;
+      }
+    }
+
     const specification: FunctionSpec = {
       name: options.functionId,
       preconditions: options.specification?.preconditions ?? [],
       postconditions: options.specification?.postconditions ?? [],
-      parameters: options.specification?.parameters ?? [],
-      return_type: options.specification?.return_type ?? 'unknown',
+      parameters,
+      return_type: returnType,
     };
 
     const target: InvestigationTarget = {
@@ -423,8 +444,8 @@ export class ProofDebugger {
         },
       },
       repairAgent: {
-        generatePatches: (proof, target) =>
-          repairAgent.generatePatches(proof, this.buildDefectContext(proof, target)),
+        generatePatches: async (proof, target) =>
+          repairAgent.generatePatches(proof, await this.buildDefectContext(proof, target)),
       },
       classifierAgent: {
         classify: (patch, original) => classifierAgent.classify(patch, original),
@@ -530,21 +551,66 @@ export class ProofDebugger {
    * located by finding the function in its source (falling back to line 1), and
    * variable states are derived from the proof's triggering input.
    */
-  private buildDefectContext(
+  private async buildDefectContext(
     proof: ProofOfFailureCertificate,
     target: InvestigationTarget
-  ): DefectContext {
-    const defectLine = this.locateDefectLine(target);
+  ): Promise<DefectContext> {
+    const name = target.specification?.name || target.function_id;
+
+    // Prefer the function's real span from the CST. Bounding the window to the
+    // function keeps generated patches inside it — a bare defect_line ±10 window
+    // can reach into a module docstring or an adjacent function, producing
+    // patches that "fix" prose.
+    let range = null;
+    let nonCodeLines: number[] | undefined;
+    try {
+      const parsed = await this.parserAgent!.parseFile(target.file_path);
+      range = findFunctionRange(parsed.cst, name);
+      nonCodeLines = collectNonCodeLines(parsed.cst);
+    } catch {
+      range = null;
+    }
+
+    const textualLine = this.locateDefectLine(target);
+    // Keep the defect line inside the function when we know where it is.
+    const defectLine =
+      range && (textualLine < range.start_line || textualLine > range.end_line)
+        ? range.start_line
+        : textualLine;
+
     return {
       defect_line: defectLine,
       file_path: target.file_path,
-      context_window: {
+      context_window: range ?? {
         start_line: Math.max(1, defectLine - 10),
         end_line: defectLine + 10,
       },
       variable_states: deriveVariableStates(proof.test_input),
       specification: target.specification,
+      non_code_lines: nonCodeLines,
     };
+  }
+
+  /**
+   * Recover a function's parameter list and return type from its source.
+   *
+   * Best-effort: a parse failure or an unrecognized function simply yields null,
+   * leaving the caller's (empty) specification as-is rather than failing the
+   * investigation.
+   *
+   * @param resolvedPath - Absolute path to the file containing the function.
+   * @param functionId - Name of the function being investigated.
+   */
+  private async inferSignature(
+    resolvedPath: string,
+    functionId: string
+  ): Promise<ExtractedSignature | null> {
+    try {
+      const parsed = await this.parserAgent!.parseFile(resolvedPath);
+      return extractSignature(parsed.cst, functionId);
+    } catch {
+      return null;
+    }
   }
 
   /**

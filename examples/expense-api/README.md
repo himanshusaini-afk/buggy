@@ -19,18 +19,18 @@ node examples/expense-api/run-buggy.mjs
 
 Then read `logs/run.log` top to bottom.
 
-**Expect about 13 minutes**, and note where the time goes — it is the opposite of
+**Expect about 8 minutes**, and note where the time goes — it is the opposite of
 what you would guess:
 
 | Function | Outcome | Time | Inputs tried |
 |---|---|---|---|
-| `split_expense` | bug proven | **4.4s** | 1 |
-| `average_expense` | bug proven | **4.8s** | 1 |
-| `budget_usage` | bug proven | **5.0s** | 1 |
-| `apply_discount` | unconfirmed | 167s | 20 (budget exhausted) |
-| `monthly_average` | unconfirmed | 181s | 20 |
-| `remaining_budget` | unconfirmed | 166s | 20 |
-| `clamp_percent` | unconfirmed | 268s | 20 |
+| `split_expense` | bug proven | **2.7s** | 1 |
+| `average_expense` | bug proven | **3.1s** | 1 |
+| `budget_usage` | bug proven | **2.9s** | 1 |
+| `apply_discount` | unconfirmed | 112s | 20 (budget exhausted) |
+| `monthly_average` | unconfirmed | 98s | 20 |
+| `remaining_budget` | unconfirmed | 103s | 20 |
+| `clamp_percent` | unconfirmed | 173s | 20 |
 
 Bugs are found almost instantly; **clean code is what costs you**, because a
 function with no reachable failure has to burn the entire search budget before it
@@ -190,10 +190,14 @@ call.
 
 ## 8. Honest limits
 
-- **The bare CLI guesses arity.** With no specification it infers the parameter
-  list and can call a two-argument function with one argument, reporting
-  `TypeError: missing 1 required positional argument` as a "bug". That's a harness
-  artifact. Pass `parameters` via the API or MCP tool, as `run-buggy.mjs` does.
+- **Specs still beat no specs.** The bare CLI now reads the real parameter list
+  off the CST, so `buggy investigate split_expense --file src/expenses.py` finds
+  the genuine `[0, 0]` → `ZeroDivisionError` with no setup. What it *can't* infer
+  is intent: without postconditions you get the always-on oracles (crashes,
+  timeouts, NaN/Infinity, non-determinism) but not rules like `result >= 0`. For
+  unannotated Python parameters the type is `unknown`, so the fuzzer uses a
+  generic value set rather than a targeted one. Supply a spec, as
+  `run-buggy.mjs` does, when you care about a specific property.
 - **Clean functions are the slow ones.** A bug is usually found on the first
   input; a clean function must exhaust the whole budget. That asymmetry is why
   this example lowers `search_budget` to 20 — see the comment in `.debugger.yaml`.
@@ -203,20 +207,17 @@ call.
   (~0.51 for TypeScript, ~0.60 for Python). Expect to apply guards by hand today;
   the reliable value is the proof and the exact trigger. In this run every
   candidate was rejected — see `logs/patches.md`, where the **correct** fix
-  (`if people == 0: return 0.0`) sits at 93%.
+  (`if people == 0: return 0.0`) sits at 93%. The patches themselves are sound
+  Python; it is the classifier's scoring that is too blunt to recognise a minimal
+  guard.
 - **Fuzzing is stochastic and misses combination bugs.** `apply_discount` has a
   real defect (`percent_off > 100` yields a negative price) but came back
   `unconfirmed`: triggering it needs a positive `price` **and** a `percent_off`
   above 100 in the *same* input, which 20 attempts didn't pair up. Single-value
   triggers like `0` or `[]` are caught reliably; combinations need a bigger budget.
-- **Some candidate patches are junk.** One rejected candidate in `logs/patches.md`
-  wraps a line of the module docstring in an `if`. The location-variant strategy
-  offsets ±5 lines from the defect without checking the line is executable code.
-  It's correctly rejected, but it's noise in the output.
-- **The memory accumulates across runs.** `logs/watchlist.log` shows 14 episodes
-  for 7 functions because an earlier aborted run also recorded its findings. That
-  is the Watchlist working as intended — it remembers every investigation. Delete
-  `.debugger/` for a clean slate.
+- **The memory accumulates across runs.** Every investigation is recorded as an
+  episode, so running twice doubles the episode count in `logs/watchlist.log`.
+  That is the Watchlist working as intended. Delete `.debugger/` for a clean slate.
 - **The sandbox is process-level, not a VM.** Functions run in a spawned
   `python`/`node` process that shares your filesystem and network. Fine for your
   own code; don't point it at untrusted third-party code expecting containment.

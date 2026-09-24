@@ -1,5 +1,5 @@
 BUGGY RUN — expense-api example
-2026-09-24T09:30:15.366Z
+2026-09-24T10:55:57.590Z
 ══════════════════════════════════════════════════════════════════════════════
 
 Pipeline per function:  Parse → Prove → Repair → Classify
@@ -42,14 +42,14 @@ PHASE 1 — PARSE (Parser_Agent, Tree-sitter)
     total nodes:    109
     syntax errors:  0
     functions:      split_expense, average_expense, apply_discount, monthly_average
-    parse time:     0.89ms
+    parse time:     0.25ms
 
   src/budget.py
     root node:      module   (a real Python parse; "program" would mean the TS fallback)
     total nodes:    94
     syntax errors:  0
     functions:      budget_usage, remaining_budget, clamp_percent
-    parse time:     0.33ms
+    parse time:     0.15ms
 
 ──────────────────────────────────────────────────────────────────────────────
 PHASE 2-4 — PROVE, REPAIR, CLASSIFY (per function)
@@ -67,16 +67,16 @@ FUNCTION  split_expense   (src/expenses.py)
     postcondition:  isFinite(result)
     postcondition:  !isNaN(result)
 
-  RESULT: confirmed_no_repair   (4398ms)
+  RESULT: confirmed_no_repair   (2744ms)
 
   PROOF-OF-FAILURE CERTIFICATE
     triggering input:   [0,0]
     observed output:    undefined   (null = NaN/None or a raised error)
     violated rule:      function must not throw: ZeroDivisionError: division by zero
     verification:
-      admissible  2026-09-24T09:30:17.193Z   (input satisfies the preconditions)
-      sound       2026-09-24T09:30:20.560Z   (re-running really does violate the rule)
-      unique      2026-09-24T09:30:20.560Z   (failure attributed to this function)
+      admissible  2026-09-24T10:55:58.770Z   (input satisfies the preconditions)
+      sound       2026-09-24T10:56:00.921Z   (re-running really does violate the rule)
+      unique      2026-09-24T10:56:00.921Z   (failure attributed to this function)
 
   WORK DONE
     CST nodes parsed:   109
@@ -86,10 +86,10 @@ FUNCTION  split_expense   (src/expenses.py)
     patches approved:   0
 
   PHASE TIMINGS
-    parsing         Parser_Agent         11ms
-    proving         Bug_Proving_Agent    4366ms
-    repair          Repair_Agent         3ms
-    classification  Classifier_Agent     3ms
+    parsing         Parser_Agent         3ms
+    proving         Bug_Proving_Agent    2734ms
+    repair          Repair_Agent         4ms
+    classification  Classifier_Agent     1ms
 
   CANDIDATE FIXES (proposed only — you decide whether to apply)
     [REJECTED] overfitting 93.0%  lines 10-10
@@ -99,10 +99,10 @@ FUNCTION  split_expense   (src/expenses.py)
     [REJECTED] overfitting 97.5%  lines 15-15
        reason: Overfitting risk: top factors - identifier_count, statement_count, nesting_depth
        │     return 0.0
-    [REJECTED] overfitting 93.0%  lines 5-5
+    [REJECTED] overfitting 93.0%  lines 15-15
        reason: Overfitting risk: top factors - identifier_count, statement_count, nesting_depth
-       │ if people == 0:
-       │     caller-supplied count, averaging a possibly-empty collection, and applying an
+       │     if people == 0:
+       │         return 0.0
 
 ··············································································
 FUNCTION  average_expense   (src/expenses.py)
@@ -115,16 +115,16 @@ FUNCTION  average_expense   (src/expenses.py)
     postcondition:  isFinite(result)
     postcondition:  !isNaN(result)
 
-  RESULT: confirmed_no_repair   (4756ms)
+  RESULT: confirmed_no_repair   (3104ms)
 
   PROOF-OF-FAILURE CERTIFICATE
     triggering input:   [[]]
     observed output:    undefined   (null = NaN/None or a raised error)
     violated rule:      function must not throw: ZeroDivisionError: division by zero
     verification:
-      admissible  2026-09-24T09:30:22.465Z   (input satisfies the preconditions)
-      sound       2026-09-24T09:30:26.145Z   (re-running really does violate the rule)
-      unique      2026-09-24T09:30:26.145Z   (failure attributed to this function)
+      admissible  2026-09-24T10:56:01.982Z   (input satisfies the preconditions)
+      sound       2026-09-24T10:56:04.472Z   (re-running really does violate the rule)
+      unique      2026-09-24T10:56:04.472Z   (failure attributed to this function)
 
   WORK DONE
     CST nodes parsed:   109
@@ -134,9 +134,9 @@ FUNCTION  average_expense   (src/expenses.py)
     patches approved:   0
 
   PHASE TIMINGS
-    parsing         Parser_Agent         5ms
-    proving         Bug_Proving_Agent    4747ms
-    repair          Repair_Agent         1ms
+    parsing         Parser_Agent         3ms
+    proving         Bug_Proving_Agent    3097ms
+    repair          Repair_Agent         2ms
     classification  Classifier_Agent     1ms
 
   CANDIDATE FIXES (proposed only — you decide whether to apply)
@@ -147,10 +147,10 @@ FUNCTION  average_expense   (src/expenses.py)
     [REJECTED] overfitting 98.7%  lines 23-23
        reason: Overfitting risk: top factors - identifier_count, nesting_depth, statement_count
        │     return 0.0
-    [REJECTED] overfitting 93.0%  lines 13-13
+    [REJECTED] overfitting 93.0%  lines 23-23
        reason: Overfitting risk: top factors - identifier_count, statement_count, nesting_depth
        │     if len(amounts) == 0:
-       │         BUG: `people == 0` raises ZeroDivisionError.
+       │         return 0.0
 
 ··············································································
 FUNCTION  apply_discount   (src/expenses.py)
@@ -163,7 +163,7 @@ FUNCTION  apply_discount   (src/expenses.py)
     precondition:   Number.isFinite(percent_off) && percent_off >= 0 && percent_off <= 100000
     postcondition:  result >= 0
 
-  RESULT: unconfirmed   (167186ms)
+  RESULT: unconfirmed   (112210ms)
 
   No violating input found within budget.
     NOTE: "unconfirmed" means not-found-within-budget, NOT proven safe.
@@ -176,8 +176,8 @@ FUNCTION  apply_discount   (src/expenses.py)
     patches approved:   0
 
   PHASE TIMINGS
-    parsing         Parser_Agent         15ms
-    proving         Bug_Proving_Agent    167170ms
+    parsing         Parser_Agent         4ms
+    proving         Bug_Proving_Agent    112206ms
 
   No candidate fixes generated (nothing to repair).
 
@@ -192,21 +192,21 @@ FUNCTION  monthly_average   (src/expenses.py)
     postcondition:  isFinite(result)
     postcondition:  !isNaN(result)
 
-  RESULT: unconfirmed   (180533ms)
+  RESULT: unconfirmed   (97966ms)
 
   No violating input found within budget.
     NOTE: "unconfirmed" means not-found-within-budget, NOT proven safe.
 
   WORK DONE
     CST nodes parsed:   109
-    inputs tried:       58
+    inputs tried:       56
     violations found:   0
     patches generated:  0
     patches approved:   0
 
   PHASE TIMINGS
-    parsing         Parser_Agent         7ms
-    proving         Bug_Proving_Agent    180525ms
+    parsing         Parser_Agent         8ms
+    proving         Bug_Proving_Agent    97958ms
 
   No candidate fixes generated (nothing to repair).
 
@@ -222,16 +222,16 @@ FUNCTION  budget_usage   (src/budget.py)
     postcondition:  isFinite(result)
     postcondition:  !isNaN(result)
 
-  RESULT: confirmed_no_repair   (4988ms)
+  RESULT: confirmed_no_repair   (2882ms)
 
   PROOF-OF-FAILURE CERTIFICATE
     triggering input:   [0,0]
     observed output:    undefined   (null = NaN/None or a raised error)
     violated rule:      function must not throw: ZeroDivisionError: division by zero
     verification:
-      admissible  2026-09-24T09:36:16.024Z   (input satisfies the preconditions)
-      sound       2026-09-24T09:36:20.119Z   (re-running really does violate the rule)
-      unique      2026-09-24T09:36:20.119Z   (failure attributed to this function)
+      admissible  2026-09-24T10:59:36.208Z   (input satisfies the preconditions)
+      sound       2026-09-24T10:59:38.490Z   (re-running really does violate the rule)
+      unique      2026-09-24T10:59:38.490Z   (failure attributed to this function)
 
   WORK DONE
     CST nodes parsed:   94
@@ -241,10 +241,10 @@ FUNCTION  budget_usage   (src/budget.py)
     patches approved:   0
 
   PHASE TIMINGS
-    parsing         Parser_Agent         6ms
-    proving         Bug_Proving_Agent    4978ms
-    repair          Repair_Agent         1ms
-    classification  Classifier_Agent     1ms
+    parsing         Parser_Agent         4ms
+    proving         Bug_Proving_Agent    2865ms
+    repair          Repair_Agent         7ms
+    classification  Classifier_Agent     2ms
 
   CANDIDATE FIXES (proposed only — you decide whether to apply)
     [REJECTED] overfitting 86.0%  lines 8-8
@@ -254,10 +254,10 @@ FUNCTION  budget_usage   (src/budget.py)
     [REJECTED] overfitting 97.2%  lines 13-13
        reason: Overfitting risk: top factors - nesting_depth, identifier_count, statement_count
        │     return 0.0
-    [REJECTED] overfitting 86.0%  lines 3-3
+    [REJECTED] overfitting 86.0%  lines 13-13
        reason: Overfitting risk: top factors - identifier_count, statement_count, nesting_depth
-       │ if budget == 0:
-       │     Contains one proven defect and two functions that are genuinely safe, so the
+       │     if budget == 0:
+       │         return 0.0
 
 ··············································································
 FUNCTION  remaining_budget   (src/budget.py)
@@ -270,7 +270,7 @@ FUNCTION  remaining_budget   (src/budget.py)
     precondition:   Number.isFinite(spent) && spent >= 0 && spent <= 100000
     postcondition:  result >= 0
 
-  RESULT: unconfirmed   (165661ms)
+  RESULT: unconfirmed   (102612ms)
 
   No violating input found within budget.
     NOTE: "unconfirmed" means not-found-within-budget, NOT proven safe.
@@ -283,8 +283,8 @@ FUNCTION  remaining_budget   (src/budget.py)
     patches approved:   0
 
   PHASE TIMINGS
-    parsing         Parser_Agent         10ms
-    proving         Bug_Proving_Agent    165651ms
+    parsing         Parser_Agent         2ms
+    proving         Bug_Proving_Agent    102610ms
 
   No candidate fixes generated (nothing to repair).
 
@@ -299,7 +299,7 @@ FUNCTION  clamp_percent   (src/budget.py)
     postcondition:  result >= 0
     postcondition:  result <= 100
 
-  RESULT: unconfirmed   (268414ms)
+  RESULT: unconfirmed   (172691ms)
 
   No violating input found within budget.
     NOTE: "unconfirmed" means not-found-within-budget, NOT proven safe.
@@ -312,18 +312,18 @@ FUNCTION  clamp_percent   (src/budget.py)
     patches approved:   0
 
   PHASE TIMINGS
-    parsing         Parser_Agent         14ms
-    proving         Bug_Proving_Agent    268399ms
+    parsing         Parser_Agent         4ms
+    proving         Bug_Proving_Agent    172687ms
 
   No candidate fixes generated (nothing to repair).
 
 ──────────────────────────────────────────────────────────────────────────────
 PHASE 5 — EXPERIENCE MEMORY (Watchlist)
 ──────────────────────────────────────────────────────────────────────────────
-  episodes recorded:  14
-  verified episodes:  6
+  episodes recorded:  7
+  verified episodes:  3
   distinct lessons:   7
-  outcomes:           {"confirmed_no_repair":6,"unconfirmed":8}
+  outcomes:           {"confirmed_no_repair":3,"unconfirmed":4}
 
   RECALL — what Buggy tells an agent before it edits `split_expense`:
     seen_before: true   lessons: 2

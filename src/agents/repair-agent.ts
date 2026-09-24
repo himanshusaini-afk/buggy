@@ -475,13 +475,25 @@ export class RepairAgent {
     // Generate patches at offset lines within the context window
     const offsets = [-5, -3, -1, 1, 3, 5];
 
+    // Never stray outside the function being repaired. `context_window` carries
+    // the function's real span when the caller could resolve it, so offsets that
+    // would land in a module docstring or a neighbouring function are dropped
+    // rather than producing a patch that edits prose.
+    const bounds = context.context_window;
+
+    // Comment and docstring lines carry no executable code, so wrapping them in a
+    // guard produces a syntactically broken, semantically meaningless patch.
+    const nonCodeLines = new Set(context.non_code_lines ?? []);
+
     for (const offset of offsets) {
       if (additionalPatches.length >= needed) break;
 
       const targetLine = context.defect_line + offset;
       if (
         targetLine < content.startLine ||
-        targetLine > content.endLine
+        targetLine > content.endLine ||
+        (bounds && (targetLine < bounds.start_line || targetLine > bounds.end_line)) ||
+        nonCodeLines.has(targetLine)
       ) {
         continue;
       }
@@ -508,7 +520,15 @@ export class RepairAgent {
       const guardCondition = this.buildGuardCondition(context, proof);
       if (!guardCondition) continue;
       const indent = lineContent.match(/^(\s*)/)?.[1] ?? '';
-      const patchDiff = this.dialect.wrapInConditional(guardCondition, lineContent, indent);
+      // An early return, not a wrapper. Wrapping a line in the *trigger*
+      // condition inverts the logic — it would run the failing operation exactly
+      // when the bad input is present. These variants differ from the primary
+      // guard only by insertion line, which is what makes them distinct.
+      const patchDiff = this.dialect.guardEarlyReturn(
+        guardCondition,
+        this.inferDefaultReturn(context),
+        indent
+      );
 
       const candidate: PatchCandidate = {
         id: randomUUID(),
@@ -817,6 +837,10 @@ export class RepairAgent {
         // overfitting metrics.
         const trimmed = defectLine.trim();
         if (this.dialect.isStructuralLine(trimmed)) {
+          return null;
+        }
+        // Deleting a comment or docstring line repairs nothing.
+        if ((context.non_code_lines ?? []).includes(context.defect_line)) {
           return null;
         }
 

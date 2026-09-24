@@ -1,15 +1,8 @@
 Watchlist experience memory — expense-api
-2026-09-24T09:43:35.851Z
+2026-09-24T11:04:15.266Z
 ============================================================
 
-EPISODES (14):
-  • [python] split_expense      confirmed_no_repair    class=division_by_zero trigger=[0,0]
-  • [python] average_expense    confirmed_no_repair    class=division_by_zero trigger=[[]]
-  • [python] apply_discount     unconfirmed            class=unconfirmed trigger=undefined
-  • [python] monthly_average    unconfirmed            class=unconfirmed trigger=undefined
-  • [python] budget_usage       confirmed_no_repair    class=division_by_zero trigger=[0,0]
-  • [python] remaining_budget   unconfirmed            class=unconfirmed trigger=undefined
-  • [python] clamp_percent      unconfirmed            class=unconfirmed trigger=undefined
+EPISODES (7):
   • [python] split_expense      confirmed_no_repair    class=division_by_zero trigger=[0,0]
   • [python] average_expense    confirmed_no_repair    class=division_by_zero trigger=[[]]
   • [python] apply_discount     unconfirmed            class=unconfirmed trigger=undefined
@@ -18,4 +11,4 @@ EPISODES (14):
   • [python] remaining_budget   unconfirmed            class=unconfirmed trigger=undefined
   • [python] clamp_percent      unconfirmed            class=unconfirmed trigger=undefined
 
-STATS: {"total_episodes":14,"verified":6,"distinct_lessons":7,"outcomes":{"confirmed_no_repair":6,"unconfirmed":8}}
+STATS: {"total_episodes":7,"verified":3,"distinct_lessons":7,"outcomes":{"confirmed_no_repair":3,"unconfirmed":4}}

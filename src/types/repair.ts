@@ -44,6 +44,13 @@ export interface DefectContext {
   context_window: CodeRange;
   variable_states: VariableState[];
   specification: FunctionSpec;
+  /**
+   * 1-based lines holding no executable code (comments and docstrings), derived
+   * from the CST. Patch strategies that select a line by offset use this to avoid
+   * generating a patch that edits prose. Optional: when absent, no lines are
+   * excluded.
+   */
+  non_code_lines?: number[];
 }
 
 export interface StageFeedback {

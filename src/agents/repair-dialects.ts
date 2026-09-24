@@ -44,14 +44,6 @@ export interface RepairDialect {
   /** Render a `return <value>` statement. */
   returnStatement(value: string, indent: string): string;
 
-  /**
-   * Wrap an existing line of code in a conditional block.
-   * @param condition - Already-rendered boolean expression.
-   * @param bodyLine - The original source line to place inside the block.
-   * @param indent - Leading whitespace for the `if` itself.
-   */
-  wrapInConditional(condition: string, bodyLine: string, indent: string): string;
-
   /** Render an assignment `<name> = <expr>`. */
   assign(name: string, expr: string, indent: string): string;
 
@@ -136,9 +128,6 @@ export const typescriptDialect: RepairDialect = {
 
   returnStatement: (value, indent) => `${indent}return ${value};`,
 
-  wrapInConditional: (condition, bodyLine, indent) =>
-    `${indent}if (${condition}) {\n${bodyLine}\n${indent}}`,
-
   assign: (name, expr, indent) => `${indent}${name} = ${expr};`,
 
   equals: (lhs, rhs) => `${lhs} === ${rhs}`,
@@ -195,11 +184,6 @@ export const pythonDialect: RepairDialect = {
     `${indent}if ${condition}:\n${indent}    return ${returnValue}`,
 
   returnStatement: (value, indent) => `${indent}return ${value}`,
-
-  // The wrapped line must be re-indented into the new block, since Python has no
-  // braces to delimit it.
-  wrapInConditional: (condition, bodyLine, indent) =>
-    `${indent}if ${condition}:\n${indent}    ${bodyLine.trim()}`,
 
   assign: (name, expr, indent) => `${indent}${name} = ${expr}`,
 
