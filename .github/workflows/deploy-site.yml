@@ -1,0 +1,49 @@
+name: Deploy site to GitHub Pages
+
+on:
+  push:
+    # `buggy-agent-updates` is here so the site can publish from the current
+    # working branch. Once this lands on main it can be dropped.
+    branches: [main, buggy-agent-updates]
+    paths:
+      - 'site/**'
+      - '.github/workflows/deploy-site.yml'
+  # Manual runs. Note GitHub only lists this in the Actions tab once the
+  # workflow file exists on the repository's DEFAULT branch.
+  workflow_dispatch:
+
+# GITHUB_TOKEN needs these to publish to Pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two deploys at once; a queued one supersedes the last.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      # The site is plain HTML/CSS/JS, so there is nothing to build —
+      # the folder is uploaded exactly as it sits in the repo.
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./site
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buggy — the debugger that proves the bug before it fixes it</title>
+
+<meta name="description" content="Buggy is a proof-carrying debugger. It executes your code to find a real failing input, verifies the failure three ways, generates candidate patches, and scores every patch for overfitting before showing it to you.">
+<meta name="theme-color" content="#0a0c10">
+<meta name="color-scheme" content="dark">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Buggy — the debugger that proves the bug before it fixes it">
+<meta property="og:description" content="Executes your code to find a real failing input, verifies it three ways, then rejects patches that only work on the example that caught them.">
+<meta property="og:url" content="https://himanshusaini-afk.github.io/buggy/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Buggy — proof-carrying debugging">
+<meta name="twitter:description" content="Most tools guess. Buggy executes, then proves.">
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0c10'/%3E%3Cpath d='M9 16.5l4.2 4.2L23 11' stroke='%2353e0a6' stroke-width='3.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./assets/css/styles.css">
+<!-- Marks the document as scripted BEFORE first paint. Scroll-reveal rules are
+     scoped to .js, so if scripting is unavailable or main.js fails to load the
+     content renders fully visible instead of staying at opacity 0. -->
+<script>document.documentElement.classList.add('js');</script>
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to main content</a>
+<div class="scroll-progress" aria-hidden="true"><span id="scrollBar"></span></div>
+
+<!-- ───────────────────────────── NAV ───────────────────────────── -->
+<header class="nav" id="nav">
+  <div class="wrap nav__inner">
+    <a class="brand" href="#top" aria-label="Buggy, back to top">
+      <svg class="brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="9"/>
+        <path d="M9 16.5l4.2 4.2L23 11"/>
+      </svg>
+      <span class="brand__name">Buggy</span>
+    </a>
+
+    <nav class="nav__links" aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#proof">Proof</a>
+      <a href="#overfit">Overfitting</a>
+      <a href="#use">Use it</a>
+      <a href="#install">Install</a>
+      <a href="#status">Status</a>
+    </nav>
+
+    <a class="btn btn--ghost btn--sm nav__cta" href="https://github.com/himanshusaini-afk/buggy">
+      <svg viewBox="0 0 16 16" aria-hidden="true" class="icon"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38v-1.35c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.18-.89-1.18-.73-.5.05-.49.05-.49.81.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 014 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+
+    <button class="nav__burger" id="burger" aria-expanded="false" aria-controls="nav-mobile" aria-label="Open menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+
+  <div class="nav__mobile" id="nav-mobile" hidden>
+    <a href="#how">How it works</a>
+    <a href="#proof">Proof</a>
+    <a href="#overfit">Overfitting</a>
+    <a href="#use">Use it</a>
+    <a href="#install">Install</a>
+    <a href="#status">Status</a>
+    <a href="https://github.com/himanshusaini-afk/buggy">GitHub ↗</a>
+  </div>
+</header>
+
+<main id="main">
+<span id="top"></span>
+
+<!-- ───────────────────────────── HERO ───────────────────────────── -->
+<section class="hero">
+  <canvas class="hero__canvas" id="lattice" aria-hidden="true"></canvas>
+  <div class="hero__glow" aria-hidden="true"></div>
+
+  <div class="wrap hero__inner">
+    <div class="hero__copy">
+      <p class="eyebrow reveal">
+        <span class="dot"></span> Proof-carrying debugging
+      </p>
+
+      <h1 class="hero__title reveal" data-reveal-delay="1">
+        Most tools guess.<br>
+        <span class="grad">Buggy executes, then proves.</span>
+      </h1>
+
+      <p class="hero__lede reveal" data-reveal-delay="2">
+        Buggy runs your function against the inputs most likely to break it. When one does,
+        it verifies the failure three separate ways before calling it a bug — then writes
+        candidate fixes and scores each one for overfitting. It never edits your code on its own.
+      </p>
+
+      <div class="hero__actions reveal" data-reveal-delay="3">
+        <a class="btn btn--primary" href="#install">
+          Install it
+          <svg viewBox="0 0 16 16" class="icon" aria-hidden="true"><path d="M8 1v10m0 0l4-4m-4 4L4 7M2 14h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <a class="btn btn--ghost" href="#how">See the pipeline</a>
+      </div>
+
+      <p class="hero__meta reveal" data-reveal-delay="4">
+        Node 18+ · TypeScript &amp; Python · runs fully offline · MIT
+      </p>
+    </div>
+
+    <!-- Terminal + certificate -->
+    <div class="hero__demo reveal" data-reveal-delay="2">
+      <div class="term" id="term">
+        <div class="term__bar">
+          <span class="term__dots"><i></i><i></i><i></i></span>
+          <span class="term__title">buggy investigate</span>
+        </div>
+        <pre class="term__body" aria-hidden="true"><code id="termOut"></code><span class="caret" id="caret"></span></pre>
+
+        <!-- Full transcript for assistive tech, since the visible one is animated -->
+        <div class="sr-only">
+          <p>Example session transcript:</p>
+          <pre>$ buggy investigate splitExpense --file src/expenses.ts
+
+Debugger initialized.
+Parsed src/expenses.ts — 1,284 CST nodes, 0 syntax errors.
+Proving: generating edge-case inputs.
+Executed splitExpense(0, 0) in a child process.
+
+Investigation Report
+Status: confirmed_and_repaired
+
+Proof-of-Failure Certificate
+  Violated postcondition: isFinite(result)
+  Input: [0, 0]
+  Observed output: NaN
+  Admissible: inputs satisfy all preconditions
+  Sound: NaN genuinely violates the postcondition
+  Reproducible: 3 of 3 re-executions failed identically
+
+Approved patches: 1, with overfitting probability 12.4 percent.
+  if (people === 0) { return 0; }</pre>
+        </div>
+      </div>
+
+      <div class="cert" id="cert" aria-hidden="true">
+        <span class="cert__label">Certificate</span>
+        <ul class="cert__list">
+          <li data-pillar="1"><svg class="tick" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></svg> Admissible</li>
+          <li data-pillar="2"><svg class="tick" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></svg> Sound</li>
+          <li data-pillar="3"><svg class="tick" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></svg> Reproducible</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── STATS ───────────────────────────── -->
+<section class="stats" aria-label="Project numbers">
+  <div class="wrap stats__grid">
+    <div class="stat reveal"><b><span class="count" data-to="4">0</span></b><span>pipeline phases</span></div>
+    <div class="stat reveal" data-reveal-delay="1"><b><span class="count" data-to="3">0</span></b><span>proof pillars</span></div>
+    <div class="stat reveal" data-reveal-delay="2"><b><span class="count" data-to="66">0</span></b><span>classifier dimensions</span></div>
+    <div class="stat reveal" data-reveal-delay="3"><b><span class="count" data-to="7">0</span></b><span>MCP tools</span></div>
+    <div class="stat reveal" data-reveal-delay="4"><b><span class="count" data-to="908">0</span></b><span>tests in the suite</span></div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── PROBLEM ───────────────────────────── -->
+<section class="section" id="why">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="reveal">The gap Buggy fills</h2>
+      <p class="reveal" data-reveal-delay="1">
+        Static analysis tells you where a bug <em>might</em> be. AI assistants write a fix that
+        <em>looks</em> right. Neither one proves anything, and both hand you the triage work.
+      </p>
+    </div>
+
+    <div class="compare">
+      <div class="compare__col reveal">
+        <h3 class="compare__h compare__h--bad">The usual loop</h3>
+        <ul class="list list--bad">
+          <li>A warning fires on a line that execution may never reach.</li>
+          <li>You read the code to decide whether it is real. That is the expensive part.</li>
+          <li>A patch lands, the suite goes green, production finds the edge case.</li>
+          <li>Nothing checked whether the fix generalises past the example that caught it.</li>
+        </ul>
+      </div>
+      <div class="compare__col reveal" data-reveal-delay="1">
+        <h3 class="compare__h compare__h--good">With Buggy</h3>
+        <ul class="list list--good">
+          <li>A concrete input is produced that actually breaks the function.</li>
+          <li>The failure is re-run and re-checked before it is reported at all.</li>
+          <li>Fixes are derived from the failing input, not from a generic template.</li>
+          <li>Every patch carries an overfitting score. High scorers are rejected outright.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── PIPELINE ───────────────────────────── -->
+<section class="section section--alt" id="how">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="reveal">Four phases, run in order</h2>
+      <p class="reveal" data-reveal-delay="1">
+        An orchestrator drives each phase and stamps a timeline entry as it completes. If
+        anything throws, the run halts and keeps whatever it had already produced.
+      </p>
+    </div>
+
+    <div class="pipe" id="pipe">
+      <div class="pipe__rail" aria-hidden="true"><span class="pipe__fill" id="pipeFill"></span></div>
+
+      <div class="pipe__tabs" role="tablist" aria-label="Pipeline phases">
+        <button class="pipe__tab is-active" role="tab" id="ph-1" aria-controls="pp-1" aria-selected="true" data-phase="1">
+          <span class="pipe__n">01</span><span class="pipe__name">Parse</span>
+        </button>
+        <button class="pipe__tab" role="tab" id="ph-2" aria-controls="pp-2" aria-selected="false" tabindex="-1" data-phase="2">
+          <span class="pipe__n">02</span><span class="pipe__name">Prove</span>
+        </button>
+        <button class="pipe__tab" role="tab" id="ph-3" aria-controls="pp-3" aria-selected="false" tabindex="-1" data-phase="3">
+          <span class="pipe__n">03</span><span class="pipe__name">Repair</span>
+        </button>
+        <button class="pipe__tab" role="tab" id="ph-4" aria-controls="pp-4" aria-selected="false" tabindex="-1" data-phase="4">
+          <span class="pipe__n">04</span><span class="pipe__name">Classify</span>
+        </button>
+      </div>
+
+      <div class="pipe__panels">
+        <div class="pipe__panel is-active" role="tabpanel" id="pp-1" aria-labelledby="ph-1" tabindex="0">
+          <h3>Parse — build a tree that survives broken code</h3>
+          <p>
+            Tree-sitter produces a concrete syntax tree that keeps every space and comment.
+            Invalid regions become error nodes carrying a byte offset and length, so a file
+            that does not compile still gets analysed.
+          </p>
+          <ul class="chips">
+            <li>Fault-tolerant CST</li><li>Incremental re-parse</li>
+            <li>LSP symbol resolution</li><li>Bundled TS + Python grammars</li>
+          </ul>
+        </div>
+
+        <div class="pipe__panel" role="tabpanel" id="pp-2" aria-labelledby="ph-2" tabindex="0" hidden>
+          <h3>Prove — find a real failing input, then distrust it</h3>
+          <p>
+            The fuzzer tries the values that break arithmetic first — <code>0</code>,
+            <code>NaN</code>, <code>±Infinity</code>, <code>MAX_SAFE_INTEGER</code>, empty
+            arrays — before any random input. Each candidate runs in a child process, and a
+            violation only becomes a certificate after admissibility, soundness and
+            reproducibility all pass.
+          </p>
+          <ul class="chips">
+            <li>Edge cases before randoms</li><li>Real execution, not simulation</li>
+            <li>Timeout · crash · NaN · postcondition · determinism</li><li>2 of 3 re-runs must reproduce</li>
+          </ul>
+        </div>
+
+        <div class="pipe__panel" role="tabpanel" id="pp-3" aria-labelledby="ph-3" tabindex="0" hidden>
+          <h3>Repair — guard the input the proof blames</h3>
+          <p>
+            The certificate says <code>price(0, 0)</code> raised a division error, so the guard
+            tests <code>quantity == 0</code> rather than a generic null check. Five strategies
+            produce structurally distinct candidates, and a dialect layer renders them as valid
+            TypeScript or valid Python.
+          </p>
+          <ul class="chips">
+            <li>Trigger-derived guards</li><li>Clamping for magnitude bugs</li>
+            <li>5 strategies</li><li>Never writes to your files</li>
+          </ul>
+        </div>
+
+        <div class="pipe__panel" role="tabpanel" id="pp-4" aria-labelledby="ph-4" tabindex="0" hidden>
+          <h3>Classify — reject the fix that only fits the example</h3>
+          <p>
+            Nodes are split into generated, deleted and remaining, then counted across eleven
+            AST properties. The resulting 66-dimensional vector produces an overfitting
+            probability. Score above the threshold and the patch is rejected, with the three
+            properties that drove the decision named.
+          </p>
+          <ul class="chips">
+            <li>66-dimensional vector</li><li>Threshold 0.5</li>
+            <li>Top-3 contributing properties</li><li>Swappable model</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── PROOF ───────────────────────────── -->
+<section class="section" id="proof">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="reveal">What a certificate has to survive</h2>
+      <p class="reveal" data-reveal-delay="1">
+        A crash alone is not evidence. Three checks have to pass, and failing any one of them
+        means nothing is reported.
+      </p>
+    </div>
+
+    <div class="pillars">
+      <article class="pillar reveal">
+        <span class="pillar__n">01</span>
+        <h3>Admissibility</h3>
+        <p>
+          The triggering input is re-checked against every precondition. A bug reached through
+          an input you promised would never arrive is not your bug.
+        </p>
+      </article>
+      <article class="pillar reveal" data-reveal-delay="1">
+        <span class="pillar__n">02</span>
+        <h3>Soundness</h3>
+        <p>
+          The function is executed again and the output is re-evaluated against the
+          postcondition. The violation has to still be there on a clean run.
+        </p>
+      </article>
+      <article class="pillar reveal" data-reveal-delay="2">
+        <span class="pillar__n">03</span>
+        <h3>Reproducibility</h3>
+        <p>
+          Three further executions, of which at least two must fail identically. A flake that
+          cannot be reproduced never becomes a certificate.
+        </p>
+      </article>
+    </div>
+
+    <div class="note reveal">
+      <strong>Why the evidence survives storage.</strong>
+      The values that trigger numeric bugs are exactly the ones <code>JSON.stringify</code>
+      destroys — <code>NaN</code> becomes <code>null</code>, <code>undefined</code> breaks the
+      database bind. In a proof-carrying tool the observed output <em>is</em> the evidence, so
+      every one of them is written with an explicit sentinel token instead.
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── OVERFITTING ───────────────────────────── -->
+<section class="section section--alt" id="overfit">
+  <div class="wrap overfit">
+    <div class="overfit__copy">
+      <div class="sec-head sec-head--left">
+        <h2 class="reveal">66 numbers decide whether a patch ships</h2>
+        <p class="reveal" data-reveal-delay="1">
+          A patch that special-cases the input which caught it passes every test you have and
+          fails in production. Buggy measures the shape of the edit rather than trusting the
+          suite.
+        </p>
+      </div>
+
+      <dl class="kv reveal" data-reveal-delay="2">
+        <div><dt>11</dt><dd>AST properties — statements, branches, loops, calls, declarations, assignments, returns, literals, operators, nesting depth, identifiers</dd></div>
+        <div><dt>×3</dt><dd>Edit states — generated, deleted, remaining</dd></div>
+        <div><dt>×2</dt><dd>Raw counts, then normalised</dd></div>
+        <div><dt>=66</dt><dd>Dimensions in, one overfitting probability out</dd></div>
+      </dl>
+
+      <p class="reveal" data-reveal-delay="3">
+        Patches at or below <code>0.5</code> are approved. Above it they are rejected and the
+        three properties that pushed the score up are reported, so the verdict is inspectable
+        rather than a black box.
+      </p>
+    </div>
+
+    <div class="overfit__viz reveal" data-reveal-delay="1">
+      <div class="vec" id="vec" role="img" aria-label="Visualisation of a 66-dimensional feature vector: eleven AST properties across three edit states, in raw and normalised form."></div>
+      <div class="vec__legend">
+        <span><i class="sw sw--gen"></i> generated</span>
+        <span><i class="sw sw--del"></i> deleted</span>
+        <span><i class="sw sw--rem"></i> remaining</span>
+      </div>
+      <div class="gauge">
+        <div class="gauge__track"><span class="gauge__fill" id="gaugeFill"></span><span class="gauge__mark" style="left:50%"></span></div>
+        <div class="gauge__labels"><span>approve</span><span class="gauge__val" id="gaugeVal">0.12</span><span>reject</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── FEATURES ───────────────────────────── -->
+<section class="section" id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="reveal">What you get</h2>
+      <p class="reveal" data-reveal-delay="1">Everything runs locally. No API key, no account, no network call.</p>
+    </div>
+
+    <div class="cards">
+      <article class="card reveal" data-tilt>
+        <div class="card__ico">⌘</div>
+        <h3>A real CLI</h3>
+        <p><code>init</code> with a setup wizard, then <code>analyze</code>, <code>investigate</code>, <code>status</code> and <code>halt</code>. JSON output on every command for scripting.</p>
+      </article>
+
+      <article class="card reveal" data-reveal-delay="1" data-tilt>
+        <div class="card__ico">⇄</div>
+        <h3>MCP server</h3>
+        <p>Seven tools over stdio for Kiro, Cursor, Windsurf, Claude Desktop or anything else that speaks the protocol.</p>
+      </article>
+
+      <article class="card reveal" data-reveal-delay="2" data-tilt>
+        <div class="card__ico">{ }</div>
+        <h3>Embeddable API</h3>
+        <p>One <code>ProofDebugger</code> class for CI jobs, internal dashboards and custom tooling.</p>
+      </article>
+
+      <article class="card reveal" data-tilt>
+        <div class="card__ico">◇</div>
+        <h3>Two languages, one pipeline</h3>
+        <p>TypeScript and JavaScript run through a Node child process; Python through a real interpreter. Patches are emitted in the right syntax either way.</p>
+      </article>
+
+      <article class="card reveal" data-reveal-delay="1" data-tilt>
+        <div class="card__ico">◉</div>
+        <h3>Memory that carries over</h3>
+        <p>Every investigation becomes an episode. Verified ones turn into lessons your editor reads back before it touches the same code again.</p>
+      </article>
+
+      <article class="card reveal" data-reveal-delay="2" data-tilt>
+        <div class="card__ico">▣</div>
+        <h3>Read-only by default</h3>
+        <p>Patch generation runs through a no-op writer. Candidates are produced, scored and shown — applying one is always your call.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── WATCHLIST ───────────────────────────── -->
+<section class="section section--alt" id="memory">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="reveal">The Watchlist</h2>
+      <p class="reveal" data-reveal-delay="1">
+        Each run is recorded with what triggered the bug, which patches were rejected and how
+        they failed. Verified runs become lessons, promoted outward through three tiers.
+      </p>
+    </div>
+
+    <div class="tiers">
+      <article class="tier reveal">
+        <h3><span class="tier__tag">local</span> Private to you</h3>
+        <p>Every episode lands in the SQLite file under <code>.debugger/</code>, which <code>init</code> adds to your <code>.gitignore</code>.</p>
+      </article>
+      <article class="tier reveal" data-reveal-delay="1">
+        <h3><span class="tier__tag">team</span> Committed for the repo</h3>
+        <p>Verified lessons are rewritten into a steering file your editor loads automatically, so the next person gets the same warning.</p>
+      </article>
+      <article class="tier reveal" data-reveal-delay="2">
+        <h3><span class="tier__tag">global</span> Across your projects</h3>
+        <p>Promoted only after the same lesson appears in two separate projects, and sanitised to patterns and type shapes — never source, paths or values.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── USAGE TABS ───────────────────────────── -->
+<section class="section" id="use">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="reveal">Three ways to drive it</h2>
+      <p class="reveal" data-reveal-delay="1">Same core underneath all of them.</p>
+    </div>
+
+    <div class="tabs reveal" data-reveal-delay="1">
+      <div class="tabs__list" role="tablist" aria-label="Usage examples">
+        <button class="tabs__btn is-active" role="tab" id="t-cli" aria-controls="p-cli" aria-selected="true">CLI</button>
+        <button class="tabs__btn" role="tab" id="t-mcp" aria-controls="p-mcp" aria-selected="false" tabindex="-1">MCP</button>
+        <button class="tabs__btn" role="tab" id="t-api" aria-controls="p-api" aria-selected="false" tabindex="-1">API</button>
+      </div>
+
+      <div class="tabs__panel is-active" role="tabpanel" id="p-cli" aria-labelledby="t-cli" tabindex="0">
+        <div class="code">
+          <button class="copy" data-copy aria-label="Copy CLI example">Copy</button>
+<pre><code><span class="c"># set up once — the wizard detects your language</span>
+buggy init
+
+<span class="c"># parse a file and show what was found</span>
+buggy analyze src/expenses.ts
+
+<span class="c"># run the full pipeline on one function</span>
+buggy investigate splitExpense --file src/expenses.ts --verbose
+
+<span class="c"># machine-readable, for CI</span>
+buggy investigate splitExpense -f src/expenses.ts --json</code></pre>
+        </div>
+      </div>
+
+      <div class="tabs__panel" role="tabpanel" id="p-mcp" aria-labelledby="t-mcp" tabindex="0" hidden>
+        <div class="code">
+          <button class="copy" data-copy aria-label="Copy MCP configuration">Copy</button>
+<pre><code>{
+  <span class="k">"mcpServers"</span>: {
+    <span class="k">"buggy"</span>: {
+      <span class="k">"command"</span>: <span class="s">"buggy-mcp"</span>,
+      <span class="k">"autoApprove"</span>: [
+        <span class="s">"buggy_analyze"</span>,
+        <span class="s">"buggy_list_functions"</span>,
+        <span class="s">"buggy_investigate"</span>,
+        <span class="s">"buggy_recall"</span>
+      ]
+    }
+  }
+}</code></pre>
+        </div>
+        <p class="tabs__note">
+          Tools exposed: <code>buggy_init</code>, <code>buggy_analyze</code>,
+          <code>buggy_investigate</code>, <code>buggy_status</code>,
+          <code>buggy_query_graph</code>, <code>buggy_list_functions</code>,
+          <code>buggy_recall</code>.
+        </p>
+      </div>
+
+      <div class="tabs__panel" role="tabpanel" id="p-api" aria-labelledby="t-api" tabindex="0" hidden>
+        <div class="code">
+          <button class="copy" data-copy aria-label="Copy API example">Copy</button>
+<pre><code><span class="k">import</span> { ProofDebugger } <span class="k">from</span> <span class="s">'buggy'</span>;
+
+<span class="k">const</span> dbg = <span class="k">new</span> <span class="f">ProofDebugger</span>({ projectRoot: <span class="s">'/path/to/project'</span> });
+<span class="k">await</span> dbg.<span class="f">initialize</span>();
+
+<span class="k">const</span> report = <span class="k">await</span> dbg.<span class="f">investigate</span>({
+  functionId: <span class="s">'splitExpense'</span>,
+  filePath: <span class="s">'src/expenses.ts'</span>,
+  specification: {
+    preconditions:  [<span class="s">'people &gt;= 0'</span>],
+    postconditions: [<span class="s">'isFinite(result)'</span>, <span class="s">'result &gt;= 0'</span>],
+  },
+});
+
+<span class="c">// 'confirmed_and_repaired' | 'confirmed_no_repair' | 'unconfirmed' | 'halted'</span>
+console.<span class="f">log</span>(report.status, report.proof, report.approved_patches);
+
+<span class="k">await</span> dbg.<span class="f">shutdown</span>();</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── INSTALL ───────────────────────────── -->
+<section class="section section--alt" id="install">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="reveal">Install</h2>
+      <p class="reveal" data-reveal-delay="1">
+        Install straight from the repository. It compiles itself during install, so there is no
+        separate build step.
+      </p>
+    </div>
+
+    <div class="install">
+      <div class="install__step reveal">
+        <span class="install__n">1</span>
+        <div>
+          <h3>Add it</h3>
+          <div class="code code--sm">
+            <button class="copy" data-copy aria-label="Copy install command">Copy</button>
+<pre><code><span class="c"># global — gives you `buggy` and `buggy-mcp`</span>
+npm install -g github:himanshusaini-afk/buggy
+
+<span class="c"># or as a project dependency</span>
+npm install github:himanshusaini-afk/buggy</code></pre>
+          </div>
+          <p class="install__hint">
+            The npm name <code>buggy</code> belongs to an unrelated package — install from the
+            repository, not the registry.
+          </p>
+        </div>
+      </div>
+
+      <div class="install__step reveal" data-reveal-delay="1">
+        <span class="install__n">2</span>
+        <div>
+          <h3>Set up your project</h3>
+          <div class="code code--sm">
+            <button class="copy" data-copy aria-label="Copy init command">Copy</button>
+<pre><code>cd /path/to/your/project
+buggy init             <span class="c"># interactive</span>
+buggy init --yes       <span class="c"># accept detected defaults</span></code></pre>
+          </div>
+          <p class="install__hint">
+            Writes <code>.debugger.yaml</code>, creates <code>.debugger/</code> and offers to
+            git-ignore it. Prompts are skipped automatically when stdin is not a terminal, so
+            it is safe in CI.
+          </p>
+        </div>
+      </div>
+
+      <div class="install__step reveal" data-reveal-delay="2">
+        <span class="install__n">3</span>
+        <div>
+          <h3>Find a bug</h3>
+          <div class="code code--sm">
+            <button class="copy" data-copy aria-label="Copy investigate command">Copy</button>
+<pre><code>buggy investigate splitExpense --file src/expenses.ts</code></pre>
+          </div>
+          <p class="install__hint">
+            Or build from source: <code>git clone</code>, <code>npm install</code>, then
+            <code>npm link</code> to expose both binaries.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="reqs reveal">
+      <h3>Requirements</h3>
+      <ul>
+        <li><strong>Node 18 or newer.</strong></li>
+        <li><strong>Grammars are bundled.</strong> Nothing extra to install for TypeScript or Python parsing.</li>
+        <li><strong>Python on PATH</strong> to prove Python code — <code>python</code> on Windows, <code>python3</code> elsewhere. Override with <code>BUGGY_PYTHON</code>.</li>
+        <li><strong>An LSP server is optional.</strong> Symbol resolution degrades quietly without one.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── STATUS ───────────────────────────── -->
+<section class="section" id="status">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="reveal">What runs today</h2>
+      <p class="reveal" data-reveal-delay="1">
+        The repository contains more than the live pipeline currently calls. Rather than let the
+        diagram imply otherwise, here is the split.
+      </p>
+    </div>
+
+    <div class="status">
+      <div class="status__col reveal">
+        <h3 class="status__h status__h--on">Wired and running</h3>
+        <ul class="list list--good">
+          <li>Tree-sitter parsing with error recovery, incremental re-parse, LSP resolution</li>
+          <li>Execution-based fuzzing with edge-case-first input generation</li>
+          <li>Five oracles: timeout, crash, NaN/Infinity, postcondition, determinism</li>
+          <li>Three-pillar certification: admissibility, soundness, reproducibility</li>
+          <li>Trigger-derived repair with TypeScript and Python dialects</li>
+          <li>66-dimensional overfitting classification</li>
+          <li>Watchlist recording and recall across all three tiers</li>
+          <li>CLI, MCP server and programmatic API</li>
+        </ul>
+      </div>
+
+      <div class="status__col reveal" data-reveal-delay="1">
+        <h3 class="status__h status__h--off">Present, not yet in the pipeline</h3>
+        <ul class="list list--warn">
+          <li>Firecracker microVM isolation — today the boundary is an OS child process</li>
+          <li>Compile and test filtering of patches before classification</li>
+          <li>PROBE adversarial property refinement</li>
+          <li>SpecTune alpha-consistency refinement</li>
+          <li>TrajSpec commit-history interpretation</li>
+          <li>SAFuzz region-biased mutation</li>
+          <li>Backward slicing for defect localisation</li>
+          <li>Call-graph population, so graph queries return empty</li>
+          <li>The four plug-in extension points</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="note note--warn reveal">
+      <strong>Worth saying plainly.</strong>
+      Untrusted code currently runs in a child process, not a hardware-isolated VM, and an
+      approved patch has passed the overfitting check only — it has not been compiled or
+      test-run for you. Read the diff before you apply it.
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── CTA ───────────────────────────── -->
+<section class="cta">
+  <div class="wrap cta__inner reveal">
+    <h2>Point it at your riskiest function.</h2>
+    <p>If there is an input that breaks it, you will have the input — not a warning.</p>
+    <div class="cta__actions">
+      <a class="btn btn--primary" href="https://github.com/himanshusaini-afk/buggy">Open the repository</a>
+      <a class="btn btn--ghost" href="#install">Install</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot__inner">
+    <div>
+      <a class="brand" href="#top">
+        <svg class="brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+          <rect width="32" height="32" rx="9"/><path d="M9 16.5l4.2 4.2L23 11"/>
+        </svg>
+        <span class="brand__name">Buggy</span>
+      </a>
+      <p class="foot__tag">Proof-carrying program repair and debugging. MIT licensed.</p>
+    </div>
+    <nav class="foot__links" aria-label="Footer">
+      <a href="https://github.com/himanshusaini-afk/buggy">Repository</a>
+      <a href="https://github.com/himanshusaini-afk/buggy/blob/main/docs/USAGE-GUIDE.md">Usage guide</a>
+      <a href="https://github.com/himanshusaini-afk/buggy/blob/main/docs/TECHNICAL.md">Technical notes</a>
+      <a href="https://github.com/himanshusaini-afk/buggy/issues">Issues</a>
+    </nav>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="./assets/js/main.js" defer></script>
+</body>
+</html>

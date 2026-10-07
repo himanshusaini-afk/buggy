@@ -2,6 +2,8 @@
 
 A multi-agent system that autonomously analyzes code, proves bugs exist with formal certificates, generates repairs, and validates patches against overfitting — all coordinated over the Model Context Protocol (MCP). Unlike traditional debuggers that rely on breakpoints and manual inspection, this system produces cryptographically-verifiable proof-of-failure certificates before attempting any repair.
 
+**[→ buggy on the web](https://himanshusaini-afk.github.io/buggy/)** — what it does, how the pipeline works, and what currently runs. Source in [`site/`](site/).
+
 ## Quick Start
 
 ```bash

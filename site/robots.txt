@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://himanshusaini-afk.github.io/buggy/sitemap.xml
