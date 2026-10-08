@@ -45,7 +45,14 @@ import { AgentOrchestrator } from './orchestrator/orchestrator.js';
 import type { OrchestratorDeps } from './orchestrator/orchestrator.js';
 import { WatchlistRecorder } from './watchlist/watchlist-recorder.js';
 import { WatchlistStore } from './watchlist/watchlist-store.js';
+import { Retrospective } from './watchlist/retrospective.js';
+import { CapabilityAdvisor } from './advisor/capability-advisor.js';
 import type { RecallCriteria, RecallResult, WatchlistStats } from './types/watchlist.js';
+import type {
+  CapabilityAdvice,
+  CapabilityApplyResult,
+  RetrospectiveReport,
+} from './types/advisor.js';
 import type { DebuggerConfig } from './types/config.js';
 import type { ParseResult } from './types/cst.js';
 import type { InvestigationReport, InvestigationStatus, InvestigationTarget } from './types/orchestrator.js';
@@ -301,6 +308,52 @@ export class ProofDebugger {
   watchlistStats(): WatchlistStats {
     this.ensureInitialized();
     return this.watchlistStore!.stats();
+  }
+
+  /**
+   * Analyse whether the experience memory is working.
+   *
+   * Reads each lesson's episodes as a timeline and reports which fixes held,
+   * which regressed (proven again after being repaired), which defects never
+   * got an accepted fix, and which approaches are repeated dead ends.
+   */
+  retrospect(): RetrospectiveReport {
+    this.ensureInitialized();
+    return new Retrospective(this.db!).analyse();
+  }
+
+  /**
+   * Propose new hooks, steering rules and skills based on what this project's
+   * investigation history actually shows.
+   *
+   * Returns proposals only — each carries finished file content plus the
+   * evidence that motivated it. Nothing is written; see
+   * {@link applyCapability}.
+   */
+  suggestCapabilities(): CapabilityAdvice {
+    this.ensureInitialized();
+    return this.buildAdvisor().advise(this.retrospect());
+  }
+
+  /**
+   * Write one proposal from {@link suggestCapabilities} to disk.
+   *
+   * Refuses when the target file already exists unless `force` is set, since
+   * these artefacts are meant to be hand-edited afterwards.
+   *
+   * @param id - Suggestion identifier.
+   * @param force - Overwrite an existing file.
+   */
+  applyCapability(id: string, force = false): CapabilityApplyResult {
+    this.ensureInitialized();
+    return this.buildAdvisor().apply(id, force);
+  }
+
+  private buildAdvisor(): CapabilityAdvisor {
+    return new CapabilityAdvisor(this.db!, {
+      projectRoot: this.options.projectRoot,
+      language: this.config!.language,
+    });
   }
 
   /**

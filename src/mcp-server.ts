@@ -210,6 +210,59 @@ const TOOLS = [
       required: [],
     },
   },
+  {
+    name: 'buggy_retrospect',
+    description:
+      'Report whether the experience memory is actually working. Reads each lesson as a timeline and returns which fixes held, which REGRESSED (the defect was proven again after being repaired), which defects never got an accepted fix, repeated dead-end approaches, and defect hotspots by file. Use this to decide where to add guardrails, and before claiming a class of bug is solved.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        project_path: {
+          type: 'string',
+          description: 'Project root directory (uses current directory if omitted)',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'buggy_suggest_capabilities',
+    description:
+      'Propose new Kiro hooks, steering rules and skills derived from this project\'s recorded defect history. Each proposal carries finished file content, the evidence that motivated it, and a priority. Nothing is written — call buggy_apply_capability to accept one. Use this when the same defect class keeps recurring, when fixes regress, or when the user asks how to harden the project.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        project_path: {
+          type: 'string',
+          description: 'Project root directory (uses current directory if omitted)',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'buggy_apply_capability',
+    description:
+      'Write one proposal from buggy_suggest_capabilities into the project (.kiro/hooks, .kiro/steering or .kiro/skills). Refuses if the target file already exists unless force is true. Always show the proposal to the user and get their agreement before calling this.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: {
+          type: 'string',
+          description: 'The suggestion id returned by buggy_suggest_capabilities',
+        },
+        force: {
+          type: 'boolean',
+          description: 'Overwrite the target file if it already exists (default false)',
+        },
+        project_path: {
+          type: 'string',
+          description: 'Project root directory (uses current directory if omitted)',
+        },
+      },
+      required: ['id'],
+    },
+  },
 ];
 
 // ─── Tool Handlers ───────────────────────────────────────────────────────────
@@ -448,6 +501,93 @@ async function handleRecall(args: Record<string, unknown>): Promise<ToolResult> 
   }
 }
 
+async function handleRetrospect(args: Record<string, unknown>): Promise<ToolResult> {
+  const projectPath = (args.project_path as string) || process.cwd();
+
+  try {
+    const instance = await getDebuggerInstance(projectPath);
+    const report = instance.retrospect();
+
+    return success({
+      generated_at: report.generated_at,
+      analysed_episodes: report.analysed_episodes,
+      improvement_score: report.improvement_score,
+      observations: report.observations,
+      // The actionable slices first — a caller usually wants these, not the
+      // full lesson list.
+      regressions: report.regressions.map((r) => ({
+        function_id: r.function_id,
+        file_path: r.file_path,
+        failure_class: r.failure_class,
+        occurrences: r.occurrences,
+        recurrences_after_fix: r.recurrences_after_fix,
+        first_fixed_at: r.first_fixed_at,
+        last_seen: r.last_seen,
+      })),
+      unresolved: report.unresolved.map((u) => ({
+        function_id: u.function_id,
+        file_path: u.file_path,
+        failure_class: u.failure_class,
+        occurrences: u.occurrences,
+      })),
+      dead_ends: report.dead_ends,
+      hotspots: report.hotspots,
+      lesson_count: report.lessons.length,
+      status_breakdown: report.lessons.reduce<Record<string, number>>((acc, l) => {
+        acc[l.status] = (acc[l.status] ?? 0) + 1;
+        return acc;
+      }, {}),
+    });
+  } catch (err) {
+    return error(`Retrospective failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function handleSuggestCapabilities(args: Record<string, unknown>): Promise<ToolResult> {
+  const projectPath = (args.project_path as string) || process.cwd();
+
+  try {
+    const instance = await getDebuggerInstance(projectPath);
+    const advice = instance.suggestCapabilities();
+
+    return success({
+      generated_at: advice.generated_at,
+      signals: advice.signals_summary,
+      suggestion_count: advice.suggestions.length,
+      suggestions: advice.suggestions.map((s) => ({
+        id: s.id,
+        kind: s.kind,
+        priority: s.priority,
+        title: s.title,
+        summary: s.summary,
+        rationale: s.rationale,
+        target_path: s.target_path,
+        evidence: s.evidence,
+        content: s.content,
+      })),
+      skipped: advice.skipped,
+    });
+  } catch (err) {
+    return error(`Suggestion failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function handleApplyCapability(args: Record<string, unknown>): Promise<ToolResult> {
+  const id = args.id as string;
+  const force = args.force === true;
+  const projectPath = (args.project_path as string) || process.cwd();
+
+  if (!id) return error('id is required');
+
+  try {
+    const instance = await getDebuggerInstance(projectPath);
+    const result = instance.applyCapability(id, force);
+    return success(result);
+  } catch (err) {
+    return error(`Apply failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 async function handleQueryGraph(args: Record<string, unknown>): Promise<ToolResult> {
   const queryType = args.query_type as string;
   const nodeId = args.node_id as string | undefined;
@@ -678,6 +818,18 @@ async function main(): Promise<void> {
 
       case 'buggy_recall':
         result = await handleRecall(toolArgs);
+        break;
+
+      case 'buggy_retrospect':
+        result = await handleRetrospect(toolArgs);
+        break;
+
+      case 'buggy_suggest_capabilities':
+        result = await handleSuggestCapabilities(toolArgs);
+        break;
+
+      case 'buggy_apply_capability':
+        result = await handleApplyCapability(toolArgs);
         break;
 
       default:

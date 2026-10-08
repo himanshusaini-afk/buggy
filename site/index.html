@@ -172,8 +172,8 @@ Approved patches: 1, with overfitting probability 12.4 percent.
     <div class="stat reveal"><b><span class="count" data-to="4">0</span></b><span>pipeline phases</span></div>
     <div class="stat reveal" data-reveal-delay="1"><b><span class="count" data-to="3">0</span></b><span>proof pillars</span></div>
     <div class="stat reveal" data-reveal-delay="2"><b><span class="count" data-to="66">0</span></b><span>classifier dimensions</span></div>
-    <div class="stat reveal" data-reveal-delay="3"><b><span class="count" data-to="7">0</span></b><span>MCP tools</span></div>
-    <div class="stat reveal" data-reveal-delay="4"><b><span class="count" data-to="908">0</span></b><span>tests in the suite</span></div>
+    <div class="stat reveal" data-reveal-delay="3"><b><span class="count" data-to="10">0</span></b><span>MCP tools</span></div>
+    <div class="stat reveal" data-reveal-delay="4"><b><span class="count" data-to="931">0</span></b><span>tests in the suite</span></div>
   </div>
 </section>
 
@@ -464,6 +464,44 @@ Approved patches: 1, with overfitting probability 12.4 percent.
         <p>Promoted only after the same lesson appears in two separate projects, and sanitised to patterns and type shapes — never source, paths or values.</p>
       </article>
     </div>
+
+    <div class="sec-head" style="margin-top:clamp(44px,6vw,72px)">
+      <h2 class="reveal">Then it checks whether that helped</h2>
+      <p class="reveal" data-reveal-delay="1">
+        Recording lessons is easy. Knowing if they worked is the part that
+        usually gets skipped.
+      </p>
+    </div>
+
+    <div class="tiers">
+      <article class="tier reveal">
+        <h3><span class="tier__tag">retrospect</span> Did the fix hold?</h3>
+        <p>
+          Each lesson is read as a timeline, separating fixes that held from ones
+          that <strong>regressed</strong> — proven again after being repaired.
+          That is the case where the memory existed and the defect still came
+          back, which usually means the patch guarded the triggering input rather
+          than the cause.
+        </p>
+      </article>
+      <article class="tier reveal" data-reveal-delay="1">
+        <h3><span class="tier__tag">dead ends</span> Stop retrying what failed</h3>
+        <p>
+          Rejection reasons are normalised and counted, so an approach that keeps
+          getting rejected becomes a named dead end instead of something the
+          agent rediscovers every session.
+        </p>
+      </article>
+      <article class="tier reveal" data-reveal-delay="2">
+        <h3><span class="tier__tag">suggest</span> Propose the missing guardrail</h3>
+        <p>
+          When a defect class keeps recurring, the answer is usually a new
+          guardrail rather than another patch. Buggy proposes hooks, steering
+          rules and skills built from its own evidence — each naming the episodes
+          behind it, and each written only when you accept it.
+        </p>
+      </article>
+    </div>
   </div>
 </section>
 
@@ -520,7 +558,9 @@ buggy investigate splitExpense -f src/expenses.ts --json</code></pre>
           Tools exposed: <code>buggy_init</code>, <code>buggy_analyze</code>,
           <code>buggy_investigate</code>, <code>buggy_status</code>,
           <code>buggy_query_graph</code>, <code>buggy_list_functions</code>,
-          <code>buggy_recall</code>.
+          <code>buggy_recall</code>, <code>buggy_retrospect</code>,
+          <code>buggy_suggest_capabilities</code>,
+          <code>buggy_apply_capability</code>.
         </p>
       </div>
 

@@ -93,6 +93,8 @@ interface CliFlags {
   force: boolean;
   /** Pre-answer the init language question. */
   language?: string;
+  /** For `suggest`: the suggestion id to write to disk. */
+  apply?: string;
 }
 
 function parseCliArgs(): { command: string; args: string[]; flags: CliFlags } {
@@ -106,6 +108,7 @@ function parseCliArgs(): { command: string; args: string[]; flags: CliFlags } {
       yes: { type: 'boolean', default: false, short: 'y' },
       force: { type: 'boolean', default: false },
       language: { type: 'string', short: 'l' },
+      apply: { type: 'string' },
     },
   });
 
@@ -123,6 +126,7 @@ function parseCliArgs(): { command: string; args: string[]; flags: CliFlags } {
       yes: values.yes ?? false,
       force: values.force ?? false,
       language: values.language,
+      apply: values.apply,
     },
   };
 }
@@ -142,6 +146,8 @@ ${colorize('bold', 'COMMANDS:')}
   investigate <function> --file <path>  Run full investigation pipeline on a function
   status <id>                       Show status of a running investigation
   halt <id>                         Halt a running investigation
+  retrospect                        Report whether past fixes held or regressed
+  suggest [--apply <id>]            Propose hooks/steering/skills from defect history
 
 ${colorize('bold', 'OPTIONS:')}
   --json          Output results as JSON (machine-readable; no prompts)
@@ -159,7 +165,187 @@ ${colorize('bold', 'EXAMPLES:')}
   buggy analyze src/payments.ts
   buggy investigate processPayment --file src/payments.ts
   buggy investigate processPayment -f src/payments.ts --json
+  buggy retrospect                        # did previous fixes actually hold?
+  buggy suggest                           # what guardrails is this project missing?
+  buggy suggest --apply steering-dead-ends
 `);
+}
+
+async function commandRetrospect(flags: CliFlags): Promise<void> {
+  const debugger_ = new ProofDebugger({ projectRoot: process.cwd() });
+  try {
+    await debugger_.initialize();
+    const report = debugger_.retrospect();
+
+    if (flags.json) {
+      console.log(JSON.stringify(report, null, 2));
+      return;
+    }
+
+    console.log('');
+    console.log(colorize('bold', '  Retrospective'));
+    console.log(colorize('dim', '  ─────────────────────────────────────'));
+    console.log(`  Episodes analysed:  ${report.analysed_episodes}`);
+
+    if (report.improvement_score === null) {
+      console.log(`  Fixes held:         ${colorize('dim', 'not judgeable yet')}`);
+    } else {
+      const pct = Math.round(report.improvement_score * 100);
+      const tone = pct >= 75 ? 'green' : pct >= 50 ? 'yellow' : 'red';
+      console.log(`  Fixes held:         ${colorize(tone, pct + '%')}`);
+    }
+
+    const counts = report.lessons.reduce<Record<string, number>>((acc, l) => {
+      acc[l.status] = (acc[l.status] ?? 0) + 1;
+      return acc;
+    }, {});
+    console.log(
+      `  Lessons:            ${report.lessons.length}  ` +
+        colorize('dim', `(held ${counts.held ?? 0}, regressed ${counts.regressed ?? 0}, unresolved ${counts.unresolved ?? 0}, open ${counts.open ?? 0})`)
+    );
+
+    if (report.observations.length > 0) {
+      console.log('');
+      console.log(colorize('bold', '  Reading:'));
+      for (const line of report.observations) {
+        console.log(`    ${colorize('dim', '•')} ${line}`);
+      }
+    }
+
+    if (report.regressions.length > 0) {
+      console.log('');
+      console.log(colorize('bold', `  Regressions (${report.regressions.length}):`));
+      for (const r of report.regressions) {
+        console.log(
+          `    ${colorize('red', '↩')} ${r.function_id} ${colorize('dim', '— ' + (r.failure_class ?? 'defect') + ', came back ' + r.recurrences_after_fix + '×')}`
+        );
+      }
+    }
+
+    if (report.unresolved.length > 0) {
+      console.log('');
+      console.log(colorize('bold', `  Unresolved (${report.unresolved.length}):`));
+      for (const u of report.unresolved) {
+        console.log(
+          `    ${colorize('yellow', '•')} ${u.function_id} ${colorize('dim', '— proven ' + u.occurrences + '×, no approved fix')}`
+        );
+      }
+    }
+
+    if (report.dead_ends.length > 0 && flags.verbose) {
+      console.log('');
+      console.log(colorize('bold', `  Dead ends (${report.dead_ends.length}):`));
+      for (const d of report.dead_ends) {
+        console.log(`    ${colorize('dim', d.occurrences + '×')} ${d.reason}`);
+      }
+    }
+
+    if (report.hotspots.length > 0) {
+      console.log('');
+      console.log(colorize('bold', '  Hotspots:'));
+      for (const h of report.hotspots.slice(0, 5)) {
+        const reg = h.regressions > 0 ? colorize('red', ` ${h.regressions} regression(s)`) : '';
+        console.log(
+          `    ${h.file_path} ${colorize('dim', h.proven_defects + ' defect(s), ' + h.distinct_functions + ' function(s)')}${reg}`
+        );
+      }
+    }
+
+    console.log('');
+    console.log(colorize('dim', '  Next: ') + colorize('cyan', 'buggy suggest'));
+    console.log('');
+  } catch (err) {
+    handleError(err, flags);
+  } finally {
+    await debugger_.shutdown();
+  }
+}
+
+async function commandSuggest(args: string[], flags: CliFlags): Promise<void> {
+  const debugger_ = new ProofDebugger({ projectRoot: process.cwd() });
+  try {
+    await debugger_.initialize();
+
+    // Accept both `--apply <id>` and the bare positional `suggest <id>`.
+    const applyId = flags.apply ?? args[0];
+
+    if (applyId) {
+      const result = debugger_.applyCapability(applyId, flags.force);
+      if (flags.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else if (result.written) {
+        console.log(colorize('green', '✓') + ` Wrote ${result.target_path}`);
+        console.log(colorize('dim', '  Review it, edit freely — the advisor will not overwrite it.'));
+      } else {
+        console.error(colorize('red', '✗') + ` ${result.reason}`);
+        process.exitCode = 1;
+      }
+      return;
+    }
+
+    const advice = debugger_.suggestCapabilities();
+
+    if (flags.json) {
+      console.log(JSON.stringify(advice, null, 2));
+      return;
+    }
+
+    console.log('');
+    console.log(colorize('bold', '  Suggested capabilities'));
+    console.log(colorize('dim', '  ─────────────────────────────────────'));
+    console.log(
+      `  Based on ${advice.signals_summary.total_verified} proven defect(s)` +
+        (advice.signals_summary.top_failure_class
+          ? colorize('dim', `, mostly ${advice.signals_summary.top_failure_class}`)
+          : '')
+    );
+
+    if (advice.suggestions.length === 0) {
+      console.log('');
+      console.log(
+        '  ' +
+          colorize('green', '✓') +
+          ' Nothing to suggest. Either there is not enough history yet, or every applicable guardrail is already in place.'
+      );
+      if (advice.skipped.length > 0 && flags.verbose) {
+        console.log('');
+        for (const s of advice.skipped) {
+          console.log(`    ${colorize('dim', s.id + ' — ' + s.reason)}`);
+        }
+      }
+      console.log('');
+      return;
+    }
+
+    for (const s of advice.suggestions) {
+      const tone = s.priority === 'high' ? 'red' : s.priority === 'medium' ? 'yellow' : 'dim';
+      console.log('');
+      console.log(
+        `  ${colorize(tone, '[' + s.priority + ']')} ${colorize('bold', s.title)} ${colorize('dim', '(' + s.kind + ')')}`
+      );
+      console.log(`      ${s.summary}`);
+      console.log(`      ${colorize('dim', 'Why: ' + s.rationale)}`);
+      console.log(`      ${colorize('dim', 'Writes: ' + s.target_path)}`);
+      console.log(`      ${colorize('cyan', 'buggy suggest --apply ' + s.id)}`);
+      if (flags.verbose) {
+        console.log('');
+        console.log(indentLines(s.content, '        '));
+      }
+    }
+
+    if (advice.skipped.length > 0) {
+      console.log('');
+      console.log(colorize('dim', `  Skipped ${advice.skipped.length} (already present).`));
+    }
+
+    console.log('');
+    console.log(colorize('dim', '  Use --verbose to see the full file each one would write.'));
+    console.log('');
+  } catch (err) {
+    handleError(err, flags);
+  } finally {
+    await debugger_.shutdown();
+  }
 }
 
 async function commandInit(flags: CliFlags): Promise<void> {
@@ -627,6 +813,12 @@ async function main(): Promise<void> {
       break;
     case 'halt':
       await commandHalt(args, flags);
+      break;
+    case 'retrospect':
+      await commandRetrospect(flags);
+      break;
+    case 'suggest':
+      await commandSuggest(args, flags);
       break;
     default:
       console.error(colorize('red', 'Error:') + ` Unknown command "${command}"`);

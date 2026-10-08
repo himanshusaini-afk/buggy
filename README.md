@@ -172,6 +172,20 @@ const node = debugger_.queryNode('node_42');
 // Get file subgraph
 const { nodes, edges: fileEdges } = debugger_.queryFileGraph('src/payments.ts');
 
+// Did past fixes actually hold?
+const retro = debugger_.retrospect();
+console.log(retro.improvement_score);  // share of fixed lessons that held, or null
+console.log(retro.regressions);        // defects proven again AFTER being repaired
+console.log(retro.dead_ends);          // approaches that keep getting rejected
+
+// What guardrails is this project missing?
+const advice = debugger_.suggestCapabilities();
+for (const s of advice.suggestions) {
+  console.log(s.priority, s.kind, s.title, '→', s.target_path);
+  console.log(s.rationale);            // grounded in observed episodes
+}
+debugger_.applyCapability('steering-dead-ends');  // writes the file; never clobbers
+
 // Check investigation status
 const status = debugger_.getStatus(report.id);
 
@@ -258,6 +272,40 @@ Halts a running investigation, preserving intermediate results.
 ```bash
 buggy halt inv_1234567890_abc1234
 ```
+
+### `buggy retrospect`
+
+Reports whether the experience memory is actually working. Reads each lesson's
+episodes as a timeline and tells you which fixes **held**, which **regressed**
+(the defect was proven again after being repaired), which defects never got an
+accepted fix, which approaches are repeated dead ends, and which files are
+hotspots.
+
+```bash
+buggy retrospect
+buggy retrospect --verbose   # also list every dead end
+buggy retrospect --json
+```
+
+A regression is the highest-value signal here: the memory existed, the agent had
+access to it, and the defect still came back. That usually means the patch
+addressed the triggering input rather than the cause.
+
+### `buggy suggest`
+
+Proposes new hooks, steering rules and skills derived from this project's own
+defect history. Each proposal carries the evidence that motivated it and the
+finished file content, so accepting one is a write rather than a design exercise.
+
+```bash
+buggy suggest                                  # list proposals
+buggy suggest --verbose                         # include the full file each would write
+buggy suggest --apply steering-dead-ends        # write one
+buggy suggest --apply steering-dead-ends --force  # overwrite an existing file
+```
+
+Nothing is written without `--apply`, and an existing file is never overwritten
+without `--force` — these artefacts are meant to be hand-edited afterwards.
 
 ### Global Options
 
@@ -356,6 +404,33 @@ The system consists of five specialized agents coordinated by an orchestrator:
 **Data layer:**
 - SQLite graph database (WAL mode) stores CST nodes, edges, symbol resolutions, proofs, and patches
 - All inter-agent data flows through typed MCP tool calls
+
+## Learning Across Runs
+
+Buggy keeps a record of its own history and acts on it.
+
+**The Watchlist** records one episode per investigation: the triggering input,
+every patch that was rejected and *how* it failed, and the one that worked.
+Verified episodes become lessons, promoted through three tiers — private to you,
+committed for the repo, and (once corroborated across two projects, sanitized of
+all code and values) reused across everything you work on. `buggy_recall` and the
+`buggy-recall-first` hook feed those lessons back before code gets edited.
+
+**The Retrospective** (`buggy retrospect`) asks whether any of that helped. It
+reads each lesson as a timeline and separates fixes that held from fixes that
+**regressed** — proven again after being repaired. It also collapses repeated
+rejection reasons into named dead ends, so the same rejected approach is not
+retried indefinitely.
+
+**The Advisor** (`buggy suggest`) closes the loop. When a defect class keeps
+recurring, the useful response is usually not another patch but a new guardrail,
+so the advisor proposes hooks, steering rules and skills derived from the
+project's own evidence — a regression guard scoped to the files where fixes did
+not stick, a dead-ends steering file, a language-specific defect guide rendered
+in the right syntax, a triage skill for defects where every patch was rejected,
+and a skill for converting proof certificates into regression tests. Every
+proposal names the episodes that motivated it. Nothing is written until you
+accept it.
 
 ## Extending with Custom Plugs
 

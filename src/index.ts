@@ -33,3 +33,12 @@ export {
 
 // Orchestrator
 export { AgentOrchestrator, SandboxUnavailableError } from './orchestrator/orchestrator.js';
+
+// Experience memory
+export { WatchlistRecorder } from './watchlist/watchlist-recorder.js';
+export { WatchlistStore } from './watchlist/watchlist-store.js';
+export { Retrospective } from './watchlist/retrospective.js';
+
+// Capability advisor — proposes hooks/steering/skills from defect history
+export { CapabilityAdvisor } from './advisor/capability-advisor.js';
+export type { CapabilityAdvisorOptions } from './advisor/capability-advisor.js';

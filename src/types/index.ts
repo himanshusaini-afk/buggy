@@ -118,3 +118,28 @@ export type {
   ProbeResult,
   ProbeRefinement,
 } from './probe.js';
+
+export type {
+  LessonStatus,
+  LessonOutcome,
+  DeadEnd,
+  Hotspot,
+  RetrospectiveReport,
+  CapabilityKind,
+  CapabilityPriority,
+  ProjectSignals,
+  CapabilitySuggestion,
+  CapabilityAdvice,
+  CapabilityApplyResult,
+} from './advisor.js';
+
+export type {
+  WatchlistEpisode,
+  WatchlistLesson,
+  WatchlistAttempt,
+  WatchlistScope,
+  WatchlistStats,
+  RecallCriteria,
+  RecallResult,
+  RecalledLesson,
+} from './watchlist.js';
