@@ -7,9 +7,9 @@ A multi-agent system that autonomously analyzes code, proves bugs exist with for
 ## Quick Start
 
 ```bash
-# Install from GitHub. NOTE: the npm name "buggy" is a different, unrelated
-# package — install from this repo, not `npm install buggy`.
-npm install -g github:himanshusaini-afk/buggy
+# From npm. NOTE the name is `buggy-debugger` — plain `buggy` on npm is an
+# unrelated issue tracker.
+npm install -g buggy-debugger
 
 # Initialize in your project — detects your language and asks a few questions
 cd /path/to/your/project
@@ -67,17 +67,25 @@ See the [Usage Guide](docs/USAGE-GUIDE.md) for the full list and customization o
 
 ## Installation
 
-> **Note:** the npm package name `buggy` belongs to an unrelated project. Install
-> this one from GitHub. It builds itself on install via the `prepare` script, so
-> you get the compiled `dist/` automatically.
+> **Note on the name:** this package is published as **`buggy-debugger`**. The
+> bare name `buggy` on npm is an unrelated issue tracker, and `buggy-mcp` is
+> also taken by an unrelated project — so install `buggy-debugger`. The binaries
+> it installs are still called `buggy` and `buggy-mcp`.
 
 ```bash
 # Global — gives you the `buggy` (CLI) and `buggy-mcp` (MCP server) commands
-npm install -g github:himanshusaini-afk/buggy
+npm install -g buggy-debugger
 buggy --help
 
 # Or as a project dependency
-npm install github:himanshusaini-afk/buggy
+npm install buggy-debugger
+```
+
+Installing straight from the repository also works, and builds itself via the
+`prepare` script:
+
+```bash
+npm install -g github:himanshusaini-afk/buggy
 ```
 
 Or clone and build from source:
@@ -129,7 +137,7 @@ below), or just re-run `buggy init --force` to regenerate it.
 ## Programmatic API
 
 ```typescript
-import { ProofDebugger } from 'buggy';
+import { ProofDebugger } from 'buggy-debugger';
 
 const debugger_ = new ProofDebugger({
   projectRoot: '/path/to/your/project',
@@ -439,7 +447,7 @@ The plug system lets you override default agent behavior without modifying core 
 ### Creating a Parser Plug
 
 ```typescript
-import type { ParsingPlug } from 'buggy';
+import type { ParsingPlug } from 'buggy-debugger';
 
 export const myParser: ParsingPlug = {
   name: 'my-custom-parser',
@@ -453,7 +461,7 @@ export const myParser: ParsingPlug = {
 ### Creating an Oracle Plug
 
 ```typescript
-import type { OraclePlug } from 'buggy';
+import type { OraclePlug } from 'buggy-debugger';
 
 export const memoryOracle: OraclePlug = {
   name: 'memory-leak-detector',
@@ -467,7 +475,7 @@ export const memoryOracle: OraclePlug = {
 ### Creating a Repair Plug
 
 ```typescript
-import type { RepairPlug } from 'buggy';
+import type { RepairPlug } from 'buggy-debugger';
 
 export const mlRepair: RepairPlug = {
   name: 'ml-based-repair',

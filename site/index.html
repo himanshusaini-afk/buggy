@@ -567,7 +567,7 @@ buggy investigate splitExpense -f src/expenses.ts --json</code></pre>
       <div class="tabs__panel" role="tabpanel" id="p-api" aria-labelledby="t-api" tabindex="0" hidden>
         <div class="code">
           <button class="copy" data-copy aria-label="Copy API example">Copy</button>
-<pre><code><span class="k">import</span> { ProofDebugger } <span class="k">from</span> <span class="s">'buggy'</span>;
+<pre><code><span class="k">import</span> { ProofDebugger } <span class="k">from</span> <span class="s">'buggy-debugger'</span>;
 
 <span class="k">const</span> dbg = <span class="k">new</span> <span class="f">ProofDebugger</span>({ projectRoot: <span class="s">'/path/to/project'</span> });
 <span class="k">await</span> dbg.<span class="f">initialize</span>();
@@ -610,14 +610,16 @@ console.<span class="f">log</span>(report.status, report.proof, report.approved_
           <div class="code code--sm">
             <button class="copy" data-copy aria-label="Copy install command">Copy</button>
 <pre><code><span class="c"># global — gives you `buggy` and `buggy-mcp`</span>
-npm install -g github:himanshusaini-afk/buggy
+npm install -g buggy-debugger
 
 <span class="c"># or as a project dependency</span>
-npm install github:himanshusaini-afk/buggy</code></pre>
+npm install buggy-debugger</code></pre>
           </div>
           <p class="install__hint">
-            The npm name <code>buggy</code> belongs to an unrelated package — install from the
-            repository, not the registry.
+            Published as <code>buggy-debugger</code> — the bare name <code>buggy</code> on npm is
+            an unrelated issue tracker. The commands it installs are still
+            <code>buggy</code> and <code>buggy-mcp</code>. Installing from
+            <code>github:himanshusaini-afk/buggy</code> also works.
           </p>
         </div>
       </div>

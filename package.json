@@ -1,11 +1,23 @@
 {
-  "name": "buggy",
+  "name": "buggy-debugger",
   "version": "0.1.0",
-  "description": "Proof-carrying debugger that mathematically proves bugs exist, generates verified repairs, and rejects overfit patches. Available as CLI, MCP server, or programmatic API.",
+  "description": "Proof-carrying debugger. Executes your code to find a real failing input, verifies the failure three ways before reporting it, generates candidate repairs, and rejects patches that only fit the example that caught them. CLI, MCP server, or programmatic API.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "license": "MIT",
+  "author": "himanshusaini-afk",
+  "homepage": "https://himanshusaini-afk.github.io/buggy/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/himanshusaini-afk/buggy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/himanshusaini-afk/buggy/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "keywords": [
     "debugger",
     "bug-detection",

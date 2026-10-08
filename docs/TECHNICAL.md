@@ -843,7 +843,7 @@ List all functions in a file.
 ### 1. Local CLI
 
 ```bash
-npm install -g buggy
+npm install -g buggy-debugger
 buggy init
 buggy investigate --function processPayment --file src/payments.ts
 ```
@@ -857,7 +857,7 @@ buggy investigate --function processPayment --file src/payments.ts
   "mcpServers": {
     "buggy": {
       "command": "npx",
-      "args": ["buggy-mcp"]
+      "args": ["-p", "buggy-debugger", "buggy-mcp"]
     }
   }
 }
@@ -871,7 +871,7 @@ buggy investigate --function processPayment --file src/payments.ts
 # GitHub Actions example
 - name: Buggy Debug
   run: |
-    npx buggy investigate \
+    buggy investigate \
       --function ${{ inputs.function }} \
       --file ${{ inputs.file }} \
       --output report.json

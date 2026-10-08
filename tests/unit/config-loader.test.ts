@@ -95,11 +95,11 @@ describe('config-loader', () => {
       delete lsp['initialization_options'];
       writeYaml(tmpDir, yamlFromObj(cfg));
 
-      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const config = loadConfig(tmpDir);
 
       expect(config.lsp.initialization_options).toEqual({});
-      expect(infoSpy).toHaveBeenCalledWith(
+      expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining('lsp.initialization_options'),
       );
     });
@@ -110,11 +110,11 @@ describe('config-loader', () => {
       delete sandbox['egress_policy'];
       writeYaml(tmpDir, yamlFromObj(cfg));
 
-      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const config = loadConfig(tmpDir);
 
       expect(config.sandbox.egress_policy).toBe('deny');
-      expect(infoSpy).toHaveBeenCalledWith(
+      expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining('sandbox.egress_policy'),
       );
     });
@@ -124,11 +124,11 @@ describe('config-loader', () => {
       // plugs is already not in validConfig by default
       writeYaml(tmpDir, yamlFromObj(cfg));
 
-      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const config = loadConfig(tmpDir);
 
       expect(config.plugs).toBeUndefined();
-      expect(infoSpy).toHaveBeenCalledWith(
+      expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining('plugs'),
       );
     });
@@ -272,7 +272,7 @@ describe('config-loader', () => {
       writeYaml(tmpDir, yamlFromObj(cfg));
 
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      vi.spyOn(console, 'info').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const config = loadConfig(tmpDir);
       expect(config.language).toBe('typescript');
@@ -287,7 +287,7 @@ describe('config-loader', () => {
       writeYaml(tmpDir, yamlFromObj(cfg));
 
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      vi.spyOn(console, 'info').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const config = loadConfig(tmpDir);
       expect(config).toBeDefined();
@@ -302,7 +302,7 @@ describe('config-loader', () => {
       const cfg = validConfig();
       (cfg['sandbox'] as Record<string, unknown>)['memory_limit_mb'] = 64;
       writeYaml(tmpDir, yamlFromObj(cfg));
-      vi.spyOn(console, 'info').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const config = loadConfig(tmpDir);
       expect(config.sandbox.memory_limit_mb).toBe(64);
@@ -312,7 +312,7 @@ describe('config-loader', () => {
       const cfg = validConfig();
       (cfg['sandbox'] as Record<string, unknown>)['memory_limit_mb'] = 8192;
       writeYaml(tmpDir, yamlFromObj(cfg));
-      vi.spyOn(console, 'info').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const config = loadConfig(tmpDir);
       expect(config.sandbox.memory_limit_mb).toBe(8192);
@@ -322,7 +322,7 @@ describe('config-loader', () => {
       const cfg = validConfig();
       (cfg['sandbox'] as Record<string, unknown>)['timeout_seconds'] = 1;
       writeYaml(tmpDir, yamlFromObj(cfg));
-      vi.spyOn(console, 'info').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const config = loadConfig(tmpDir);
       expect(config.sandbox.timeout_seconds).toBe(1);
@@ -332,7 +332,7 @@ describe('config-loader', () => {
       const cfg = validConfig();
       (cfg['sandbox'] as Record<string, unknown>)['timeout_seconds'] = 300;
       writeYaml(tmpDir, yamlFromObj(cfg));
-      vi.spyOn(console, 'info').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const config = loadConfig(tmpDir);
       expect(config.sandbox.timeout_seconds).toBe(300);
@@ -342,7 +342,7 @@ describe('config-loader', () => {
       const cfg = validConfig();
       (cfg['oracles'] as Record<string, unknown>)['determinism_check_count'] = 1;
       writeYaml(tmpDir, yamlFromObj(cfg));
-      vi.spyOn(console, 'info').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const config = loadConfig(tmpDir);
       expect(config.oracles.determinism_check_count).toBe(1);
@@ -352,7 +352,7 @@ describe('config-loader', () => {
       const cfg = validConfig();
       (cfg['oracles'] as Record<string, unknown>)['determinism_check_count'] = 100;
       writeYaml(tmpDir, yamlFromObj(cfg));
-      vi.spyOn(console, 'info').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const config = loadConfig(tmpDir);
       expect(config.oracles.determinism_check_count).toBe(100);
@@ -362,7 +362,7 @@ describe('config-loader', () => {
       const cfg = validConfig();
       (cfg['oracles'] as Record<string, unknown>)['timeout_threshold_seconds'] = 1;
       writeYaml(tmpDir, yamlFromObj(cfg));
-      vi.spyOn(console, 'info').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const config = loadConfig(tmpDir);
       expect(config.oracles.timeout_threshold_seconds).toBe(1);
@@ -372,7 +372,7 @@ describe('config-loader', () => {
       const cfg = validConfig();
       (cfg['oracles'] as Record<string, unknown>)['timeout_threshold_seconds'] = 300;
       writeYaml(tmpDir, yamlFromObj(cfg));
-      vi.spyOn(console, 'info').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const config = loadConfig(tmpDir);
       expect(config.oracles.timeout_threshold_seconds).toBe(300);

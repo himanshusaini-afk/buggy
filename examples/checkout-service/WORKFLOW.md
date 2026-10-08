@@ -233,9 +233,9 @@ inherits them automatically.
 
 ## 10. Adapt it to your project
 
-1. `npx buggy init` in your project; add `.debugger/` to `.gitignore`.
+1. `buggy init` in your project; add `.debugger/` to `.gitignore`.
 2. Set `language` (`typescript` or `python`) and, for signal quality, add finite/range **preconditions** to your specs (§5).
-3. Copy `run-buggy.mjs`, point the target list at your functions, and run it — or just use the CLI (`npx buggy investigate <fn> --file <path>`) / the `buggy_recall` MCP tool from Kiro.
+3. Copy `run-buggy.mjs`, point the target list at your functions, and run it — or just use the CLI (`buggy investigate <fn> --file <path>`) / the `buggy_recall` MCP tool from Kiro.
 4. Commit `.kiro/` so the team inherits the memory.
 
 See `../../docs/GETTING-STARTED.md` for the full onboarding guide and

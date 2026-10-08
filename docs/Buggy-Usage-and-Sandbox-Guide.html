@@ -102,11 +102,11 @@ sandbox: { runtime: python, timeout_seconds: 30 }</code></pre>
 <section class="section">
   <h2>3. Install &amp; set up on any project</h2>
 <pre><code># 1. Install
-npm install buggy          # or: npm install -g buggy for the CLI
+npm install buggy-debugger          # or: npm install -g buggy-debugger for the CLI
 
 # 2. Initialize in your project root
 cd /path/to/your/project
-npx buggy init             # creates .debugger.yaml and .debugger/
+buggy init             # creates .debugger.yaml and .debugger/
 
 # 3. Ignore the working directory
 echo ".debugger/" &gt;&gt; .gitignore</code></pre>

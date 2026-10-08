@@ -143,7 +143,7 @@ One command adds the debugger to any MCP-compatible IDE:
   "mcpServers": {
     "buggy": {
       "command": "npx",
-      "args": ["buggy-mcp"]
+      "args": ["-p", "buggy-debugger", "buggy-mcp"]
     }
   }
 }
@@ -321,7 +321,7 @@ Inside Kiro, the entire pipeline is triggered automatically via hooks — no man
 ### Quick Start (CLI)
 
 ```bash
-npm install -g buggy
+npm install -g buggy-debugger
 buggy init
 buggy investigate --function processPayment --file src/payments.ts
 ```
@@ -335,7 +335,7 @@ Add to your MCP configuration:
   "mcpServers": {
     "buggy": {
       "command": "npx",
-      "args": ["buggy-mcp"]
+      "args": ["-p", "buggy-debugger", "buggy-mcp"]
     }
   }
 }
@@ -344,7 +344,7 @@ Add to your MCP configuration:
 ### Programmatic API
 
 ```typescript
-import { ProofDebugger } from 'buggy';
+import { ProofDebugger } from 'buggy-debugger';
 
 const debugger = new ProofDebugger({ projectRoot: '/path/to/project' });
 await debugger.initialize();

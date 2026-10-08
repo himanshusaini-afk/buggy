@@ -93,7 +93,7 @@ watchlist: { enabled: true, scope: layered }
 `analyze` parses a file and reports structure and syntax errors. It's fast and needs no spec.
 
 ```bash
-npx buggy analyze src/embeddings.ts
+buggy analyze src/embeddings.ts
 ```
 
 ```
@@ -113,7 +113,7 @@ Use this (and `buggy_list_functions` over MCP) to find risky functions to invest
 `investigate` runs the full pipeline (Parse → Prove → Repair → Classify) on one function.
 
 ```bash
-npx buggy investigate cosineSimilarity --file src/embeddings.ts
+buggy investigate cosineSimilarity --file src/embeddings.ts
 ```
 
 ```
@@ -185,10 +185,10 @@ To assert **custom pre/postconditions** (e.g. "result is between -1 and 1"), use
 ### A. CLI (local + CI)
 
 ```bash
-npx buggy analyze <file>
-npx buggy investigate <fn> --file <path>          # add --json for machine-readable output
-npx buggy status <id>
-npx buggy halt <id>
+buggy analyze <file>
+buggy investigate <fn> --file <path>          # add --json for machine-readable output
+buggy status <id>
+buggy halt <id>
 ```
 
 Great for a pre-merge CI gate on hot files.
@@ -221,7 +221,7 @@ You don't run commands — you just code, and bugs surface in seconds.
 ### C. Programmatic API (scripts / integrations)
 
 ```ts
-import { ProofDebugger } from 'buggy';
+import { ProofDebugger } from 'buggy-debugger';
 
 const dbg = new ProofDebugger({ projectRoot: process.cwd() });
 await dbg.initialize();
@@ -247,9 +247,9 @@ await dbg.shutdown();
 
 ## 8. A full first-run, end to end
 
-1. `npx buggy init` and add `.debugger/` to `.gitignore`.
-2. `npx buggy analyze src/retriever.ts` — see the functions and confirm it parses clean.
-3. `npx buggy investigate bm25Score --file src/retriever.ts` — Buggy proves `avgDocLength = 0` yields `NaN`.
+1. `buggy init` and add `.debugger/` to `.gitignore`.
+2. `buggy analyze src/retriever.ts` — see the functions and confirm it parses clean.
+3. `buggy investigate bm25Score --file src/retriever.ts` — Buggy proves `avgDocLength = 0` yields `NaN`.
 4. Fix it (`const safeAvg = avgDocLength > 0 ? avgDocLength : 1;`) using the trigger.
 5. Re-run — now `unconfirmed`.
 6. The episode is recorded automatically; next time anyone touches `bm25Score`, `buggy_recall` surfaces the lesson.
@@ -330,11 +330,11 @@ from §7B so the MCP server is available.
 
 ```bash
 # CLI
-npx buggy init
-npx buggy analyze <file>
-npx buggy investigate <fn> --file <path> [--json] [--verbose]
-npx buggy status <id>
-npx buggy halt <id>
+buggy init
+buggy analyze <file>
+buggy investigate <fn> --file <path> [--json] [--verbose]
+buggy status <id>
+buggy halt <id>
 ```
 
 | MCP tool | Purpose |

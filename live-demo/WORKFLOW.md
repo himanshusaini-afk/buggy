@@ -171,7 +171,7 @@ node live-demo/test-real-proving.mjs           # Part 1: batch proving (4/4)
 ```
 
 For Part 2, call the `buggy_investigate` MCP tool (or the CLI
-`npx buggy investigate splitExpense --file live-demo/src/expenses.ts`) with the
+`buggy investigate splitExpense --file live-demo/src/expenses.ts`) with the
 same pre/postconditions shown in §3.
 
 ---

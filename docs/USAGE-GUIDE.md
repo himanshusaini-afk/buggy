@@ -37,13 +37,13 @@ Get up and running in under 5 minutes.
 Install globally for CLI access:
 
 ```bash
-npm install -g buggy
+npm install -g buggy-debugger
 ```
 
 Or use without installing via `npx`:
 
 ```bash
-npx buggy --help
+buggy --help
 ```
 
 Or add to your project as a dev dependency:
@@ -812,7 +812,7 @@ Add to your MCP configuration (Settings → MCP → Add Server):
   "mcpServers": {
     "buggy": {
       "command": "npx",
-      "args": ["buggy-mcp"],
+      "args": ["-p", "buggy-debugger", "buggy-mcp"],
       "env": {}
     }
   }
@@ -836,7 +836,7 @@ Add to `.vscode/mcp.json` in your workspace (or user settings):
   "servers": {
     "buggy": {
       "command": "npx",
-      "args": ["buggy-mcp"],
+      "args": ["-p", "buggy-debugger", "buggy-mcp"],
       "env": {}
     }
   }
@@ -856,7 +856,7 @@ Add to `.kiro/settings/mcp.json`:
   "mcpServers": {
     "buggy": {
       "command": "npx",
-      "args": ["buggy-mcp"],
+      "args": ["-p", "buggy-debugger", "buggy-mcp"],
       "env": {}
     }
   }
@@ -877,7 +877,7 @@ Add to your Claude Desktop config file:
   "mcpServers": {
     "buggy": {
       "command": "npx",
-      "args": ["buggy-mcp"],
+      "args": ["-p", "buggy-debugger", "buggy-mcp"],
       "env": {}
     }
   }
@@ -892,7 +892,7 @@ The MCP server uses **stdio transport** — it reads JSON-RPC messages from stdi
 
 ```bash
 # The server binary
-npx buggy-mcp
+npx -p buggy-debugger buggy-mcp
 ```
 
 The server advertises its tools via the standard `tools/list` method and handles invocations via `tools/call`. No HTTP server, no ports — just stdin/stdout.
@@ -1008,7 +1008,7 @@ What stays local (add to `.gitignore`):
 ### Installation as a Dependency
 
 ```bash
-npm install buggy
+npm install buggy-debugger
 ```
 
 ### Basic Usage Pattern
@@ -1016,7 +1016,7 @@ npm install buggy
 The API follows a simple lifecycle: **Initialize → Investigate → Read Report → Shutdown**.
 
 ```typescript
-import { ProofDebugger } from 'buggy';
+import { ProofDebugger } from 'buggy-debugger';
 
 async function main() {
   // 1. Create an instance pointing at your project
@@ -1069,7 +1069,7 @@ main().catch(console.error);
 #### Batch Investigation (Multiple Functions)
 
 ```typescript
-import { ProofDebugger } from 'buggy';
+import { ProofDebugger } from 'buggy-debugger';
 
 async function investigateAll(functions: string[], filePath: string) {
   const debugger_ = new ProofDebugger({ projectRoot: process.cwd() });
@@ -1150,7 +1150,7 @@ if (node) {
 #### Integration with CI/CD Scripts
 
 ```typescript
-import { ProofDebugger } from 'buggy';
+import { ProofDebugger } from 'buggy-debugger';
 
 async function ciCheck(changedFiles: string[]) {
   const debugger_ = new ProofDebugger({ projectRoot: process.cwd() });
@@ -1579,8 +1579,8 @@ Error: Cannot find module 'buggy'
 
 **Fix:**
 1. Check Node.js version: `node --version` (must be >= 18)
-2. Reinstall: `npm install buggy`
-3. If using globally: `npm install -g buggy`
+2. Reinstall: `npm install buggy-debugger`
+3. If using globally: `npm install -g buggy-debugger`
 
 ---
 
@@ -1620,7 +1620,7 @@ jobs:
         run: npm ci
 
       - name: Install buggy
-        run: npm install -g buggy
+        run: npm install -g buggy-debugger
 
       - name: Initialize debugger
         run: buggy init
@@ -1671,7 +1671,7 @@ proof-debug:
   image: node:20
   script:
     - npm ci
-    - npm install -g buggy
+    - npm install -g buggy-debugger
     - buggy init
     - |
       CHANGED_FILES=$(git diff --name-only $CI_MERGE_REQUEST_DIFF_BASE_SHA -- 'src/**/*.ts')
@@ -1714,7 +1714,7 @@ echo "Running buggy analysis on staged files..."
 
 EXIT_CODE=0
 for file in $STAGED_TS_FILES; do
-  RESULT=$(npx buggy analyze "$file" --json 2>&1)
+  RESULT=$(buggy analyze "$file" --json 2>&1)
   ERRORS=$(echo "$RESULT" | jq '.errors | length' 2>/dev/null)
 
   if [ "$ERRORS" -gt 0 ]; then
@@ -1751,7 +1751,7 @@ Add to `.vscode/tasks.json`:
     {
       "label": "Buggy: Analyze Current File",
       "type": "shell",
-      "command": "npx buggy analyze ${relativeFile}",
+      "command": "buggy analyze ${relativeFile}",
       "group": "test",
       "presentation": {
         "reveal": "always",
@@ -1762,7 +1762,7 @@ Add to `.vscode/tasks.json`:
     {
       "label": "Buggy: Investigate Function",
       "type": "shell",
-      "command": "npx buggy investigate ${input:functionName} --file ${relativeFile} --verbose",
+      "command": "buggy investigate ${input:functionName} --file ${relativeFile} --verbose",
       "group": "test",
       "presentation": {
         "reveal": "always",
@@ -1837,8 +1837,8 @@ The plug system lets you replace or extend default agent behavior without modify
 
 ```typescript
 // plugs/memory-oracle.ts
-import type { OraclePlug, ExecutionStep } from 'buggy';
-import type { OracleViolation } from 'buggy';
+import type { OraclePlug, ExecutionStep } from 'buggy-debugger';
+import type { OracleViolation } from 'buggy-debugger';
 
 export const memoryOracle: OraclePlug = {
   name: 'memory-leak-detector',

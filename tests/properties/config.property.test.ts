@@ -262,7 +262,7 @@ describe('Property 29: Configuration Validation', () => {
         writeTmpConfig(tmpDir, yamlFromObj(cfg));
 
         vi.spyOn(console, 'warn').mockImplementation(() => {});
-        vi.spyOn(console, 'info').mockImplementation(() => {});
+        vi.spyOn(console, 'error').mockImplementation(() => {});
 
         let threw = false;
         try {
@@ -308,7 +308,7 @@ describe('Property 29: Configuration Validation', () => {
           const warnSpy = vi
             .spyOn(console, 'warn')
             .mockImplementation(() => {});
-          vi.spyOn(console, 'info').mockImplementation(() => {});
+          vi.spyOn(console, 'error').mockImplementation(() => {});
 
           // Should NOT throw — unrecognized keys are non-fatal
           const config = loadConfig(tmpDir);
@@ -348,7 +348,7 @@ describe('Property 29: Configuration Validation', () => {
           const warnSpy = vi
             .spyOn(console, 'warn')
             .mockImplementation(() => {});
-          vi.spyOn(console, 'info').mockImplementation(() => {});
+          vi.spyOn(console, 'error').mockImplementation(() => {});
 
           // Should NOT throw
           const config = loadConfig(tmpDir);
@@ -421,8 +421,8 @@ describe('Property 29: Configuration Validation', () => {
 
           writeTmpConfig(tmpDir, yamlFromObj(cfg));
 
-          const infoSpy = vi
-            .spyOn(console, 'info')
+          const errorSpy = vi
+            .spyOn(console, 'error')
             .mockImplementation(() => {});
           vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -446,7 +446,7 @@ describe('Property 29: Configuration Validation', () => {
             }
 
             // Verify informational log was produced
-            expect(infoSpy).toHaveBeenCalledWith(
+            expect(errorSpy).toHaveBeenCalledWith(
               expect.stringContaining(field.logSubstring)
             );
           }

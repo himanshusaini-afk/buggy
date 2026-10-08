@@ -190,19 +190,30 @@ function warnUnrecognizedKeys(obj: Record<string, unknown>): void {
   }
 }
 
+/**
+ * Report which optional keys fell back to a default.
+ *
+ * Deliberately `console.error`, not `console.info`. In Node, `console.info`
+ * writes to stdout — and stdout is a data channel here: `buggy --json` emits a
+ * JSON document there, and the MCP server speaks the stdio protocol over it.
+ * A single informational line on stdout made `--json` output unparseable
+ * (`JSON.parse` choked on `[config] Applied default...`), which defeats the one
+ * thing that flag exists for. `console.warn` and `console.error` both go to
+ * stderr, so diagnostics belong on those.
+ */
 function logAppliedDefaults(rawObj: Record<string, unknown>): void {
   const lsp = rawObj['lsp'] as Record<string, unknown> | undefined;
   if (lsp && !('initialization_options' in lsp)) {
-    console.info('[config] Applied default for "lsp.initialization_options": {}');
+    console.error('[config] Applied default for "lsp.initialization_options": {}');
   }
 
   const sandbox = rawObj['sandbox'] as Record<string, unknown> | undefined;
   if (sandbox && !('egress_policy' in sandbox)) {
-    console.info('[config] Applied default for "sandbox.egress_policy": "deny"');
+    console.error('[config] Applied default for "sandbox.egress_policy": "deny"');
   }
 
   if (!('plugs' in rawObj)) {
-    console.info('[config] Applied default for "plugs": undefined (no plugs configured)');
+    console.error('[config] Applied default for "plugs": undefined (no plugs configured)');
   }
 }
 
