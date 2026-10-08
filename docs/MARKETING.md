@@ -1,6 +1,15 @@
 # Buggy
 
-## *The first debugger that proves bugs exist before fixing them.*
+## *A debugger that demonstrates the bug before it offers you a fix.*
+
+> **About this document.** This is the positioning and messaging doc. Everything
+> in the sections above "Roadmap" describes behaviour that exists today and was
+> verified against the source. Anything not yet built lives under
+> [Roadmap](#roadmap) and is labelled as such.
+>
+> For the precise feature inventory — including a module-by-module list of what
+> is wired into the live pipeline and what is library code only — see
+> [FEATURES.md](FEATURES.md).
 
 ---
 
@@ -8,33 +17,51 @@
 
 Every developer knows the pain:
 
-- **False positives everywhere.** Static analysis tools flag hundreds of "issues" — most aren't real bugs. Engineers waste hours triaging noise.
-- **Patches that pass tests but don't generalize.** A fix works on the test suite, ships to production, and breaks on edge cases nobody wrote tests for. The patch was overfit.
-- **No proof the bug exists.** When your tool says "potential null dereference on line 47," there's no mathematical guarantee that execution can actually reach that state. You're debugging a maybe.
-- **Manual debugging is a time sink.** Senior engineers spend 30–50% of their time reading code, tracing control flow, and reasoning about state. The tooling hasn't caught up to the complexity of modern systems.
-- **AI-generated patches are untrustworthy.** LLM-based repair tools generate plausible-looking code that passes superficial checks. Nobody verifies that the fix is correct in the general case.
+- **False positives everywhere.** Static analysis flags hundreds of "issues" and
+  most are not real. Engineers burn hours triaging noise.
+- **Patches that pass tests but do not generalize.** A fix works on the suite,
+  ships, and breaks on an edge case nobody wrote a test for. The patch was overfit.
+- **No evidence the bug is reachable.** When a tool says "potential null
+  dereference on line 47," nothing has established that execution can actually
+  reach that state. You are debugging a maybe.
+- **Manual debugging is a time sink.** Senior engineers spend a large share of
+  their time reading code and reasoning about state by hand.
+- **AI-generated patches are unverified.** LLM repair tools produce
+  plausible-looking code that passes a glance. Nothing checks whether the fix is
+  right in the general case.
 
-The result: slow cycles, escaped bugs, and burned-out engineers.
+The result: slow cycles, escaped bugs, and tired engineers.
 
 ---
 
 ## The Solution
 
-The Buggy takes a fundamentally different approach. It doesn't guess. It proves.
+Buggy does not guess, and it does not report a defect it cannot demonstrate.
 
-1. **Mathematically proves a bug exists** before attempting any repair — using proof-of-failure certificates with formal admissibility, soundness, and reproducibility guarantees.
-2. **Generates candidate patches** using specification-guided repair, not pattern matching.
-3. **Rejects overfit patches** using a 66-dimensional feature vector classifier that detects when a patch only works on known inputs.
-4. **Runs everything in hardware-isolated sandboxes** so untrusted code never touches your system.
-5. **Plugs into any AI IDE** via a single MCP server — no custom integrations needed.
+1. **Produces a concrete failing input** before attempting any repair, then
+   re-runs it and re-checks it. The output is a proof-of-failure certificate: a
+   reproducible witness, not a warning.
+2. **Derives candidate patches from that certificate** — the guard addresses the
+   specific failure mode the witness exposed, rendered in the target language.
+3. **Rejects overfit patches** using a 66-dimensional AST difference vector, even
+   when they pass every existing test.
+4. **Records what happened** so the next investigation starts from what already
+   worked and avoids what already failed.
+5. **Plugs into any AI IDE** through a single MCP server — 10 tools, no custom
+   integration.
+
+Local only. No network calls in the proving path, no API key, no LLM, no cloud.
+Your code does not leave the machine.
 
 ---
 
-## It Actually Works — Proven Results
+## It Actually Works
 
-This isn't a roadmap. The proving engine runs today and finds real bugs autonomously.
+The proving engine runs today and finds real bugs without being told where to look.
 
-### Live Test Results: 4/4 Bugs Found and Certified
+### Demo: four functions, four certificates
+
+From `examples/` — four division-style defects across TypeScript and Python:
 
 | Function | Input | Output | Violation | Attempts |
 |----------|-------|--------|-----------|----------|
@@ -43,262 +70,264 @@ This isn't a roadmap. The proving engine runs today and finds real bugs autonomo
 | `growthRate(0, 0)` | `(0, 0)` | `NaN` | Result must be a finite number | 1 |
 | `dailyRate(0, 0)` | `(0, 0)` | `NaN` | Result must be a finite number | 1 |
 
-**4 out of 4 bugs found and certified with ZERO human guidance.** Every proof passed all three verification steps (admissibility, soundness, reproducibility).
+Every certificate passed all three verification steps. No specification was
+written for any of them — the NaN/Infinity oracle fires without one.
 
-### How It Works
+To be straight about what this is: these are demo fixtures of the same defect
+shape, chosen to show the mechanism end to end. It is a demonstration, not a
+benchmark. Defects beyond the spec-free oracles (NaN, Infinity, crash, timeout,
+determinism) need postconditions to be caught.
 
-The proving engine follows a simple but effective pipeline:
+### Why it lands on attempt #1
 
-1. **Generate edge-case inputs** — prioritizes 0, NaN, Infinity, -Infinity, empty arrays, and boundary values before random fuzzing
-2. **Execute in a real subprocess** — each input runs the actual function in an isolated Node.js child process (not simulation, not static analysis)
-3. **Check postconditions** — four oracle checks run on every execution: NaN detection, Infinity detection, crash detection, and timeout detection
-4. **Verify the proof** — admissibility (input is valid), soundness (output actually violates the spec), reproducibility (the same failure reproduces deterministically)
-
-### Why It Finds Bugs on Attempt #1
-
-Traditional fuzzers explore random inputs hoping to stumble on a failure. Buggy's fuzzer starts with the inputs most likely to trigger division-by-zero, overflow, and boundary errors:
+Traditional fuzzers explore randomly and hope. Buggy's fuzzer starts with the
+values that actually break arithmetic:
 
 - `0`, `-0`, `NaN`, `Infinity`, `-Infinity`
 - `Number.MAX_SAFE_INTEGER`, `Number.MIN_SAFE_INTEGER`
-- Empty arrays `[]`, single-element arrays
-- Empty strings, null, undefined
+- Empty arrays, single-element arrays
+- Empty strings, `null`, `undefined`
 
-This means common numerical bugs are caught immediately — no hours of fuzzing required.
+Common numerical defects surface immediately, with no fuzzing campaign required.
 
-### No Cloud, No LLM, No API Key
+### How it works
 
-The proving engine runs entirely locally. No network calls, no API keys, no cloud dependencies. Each function is proved in under 1 second on commodity hardware.
+1. **Generate edge-case inputs** — boundary values first, then random.
+2. **Execute for real** — each input runs the actual function in a child
+   process. Not simulation, not static reasoning.
+3. **Check five oracles** — timeout, crash, NaN/Infinity, postcondition,
+   determinism. Timeout and crash short-circuit, since there is no output to check.
+4. **Certify** — admissibility (preconditions hold for this input), soundness
+   (re-execution confirms the violation), reproducibility (at least 2 of 3
+   further runs reproduce it).
 
-### Real Example: splitExpense
+### Real example
 
 ```
 Function:    splitExpense(amount: number, people: number)
 Input:       (0, 0)
 Output:      NaN
 Violation:   Output is NaN — not a finite number
-Proved in:   1 attempt (< 100ms)
 
 Proof Certificate:
-  ✓ Admissible — inputs (0, 0) satisfy preconditions (both are valid numbers)
-  ✓ Sound — NaN genuinely violates "result must be finite"
-  ✓ Unique — reproduced 3/3 times deterministically
+  ✓ Admissible    — inputs (0, 0) satisfy the stated preconditions
+  ✓ Sound         — re-execution confirms NaN violates "result must be finite"
+  ✓ Reproducible  — reproduced on repeated execution, not a one-off flake
 ```
 
 ---
 
 ## Key Differentiators
 
-### Proof-of-Failure Certificates
+### Proof-of-failure certificates
 
-Not just "test failed" — a mathematical certificate proving the bug exists. Each certificate satisfies three properties:
+Not "a test failed" — a certificate carrying the triggering input, the observed
+output, the violated postcondition, and three verification timestamps. Three
+properties must hold before anything is reported:
 
-- **Admissibility**: The preconditions are satisfiable (the bug-triggering state is reachable)
-- **Soundness**: The postcondition violation follows logically from the preconditions
-- **Reproducibility**: The same failure reproduces deterministically across repeated executions, not a one-off flake
+- **Admissibility** — the triggering input genuinely satisfies the preconditions,
+  so the state is reachable rather than hypothetical
+- **Soundness** — re-execution confirms the violation is real
+- **Reproducibility** — it reproduces across repeated executions
 
-### Overfitting Blocker
+**On the word "proof."** The mechanism is execution-based: fuzzing plus
+re-execution. There is no SMT solver, no symbolic execution and no proof
+calculus. The certificate is empirical, and its value is that it is concrete and
+re-runnable — you get the input, not an argument. Calling that *mathematical*
+certainty would be overselling it.
 
-Every candidate patch passes through a classifier that computes a 66-dimensional AST difference vector. Patches that score high on overfitting probability are rejected — even if they pass all existing tests. This catches the "works on the test suite, fails in production" problem at the source.
+### The overfitting blocker
 
-### Multi-Agent Architecture
+Every candidate patch is reduced to a 66-dimensional AST difference vector —
+11 structural properties × 3 edit states (added, deleted, unchanged) × 2 (raw and
+normalized). Patches scoring above the overfitting threshold are rejected, and
+the rejection names the top three contributing properties.
 
-Five specialized agents, not a monolithic tool:
+A patch is rejected on this basis **even if it passes all existing tests.** That
+is precisely the "green suite, broken production" failure mode, caught at the source.
+
+### It learns across runs
+
+Most tools start every analysis from zero. Buggy keeps a record of its own
+history and acts on it.
+
+- **The Watchlist** records one episode per investigation: the triggering input,
+  every patch rejected and *how* it failed, and the one that worked. Verified
+  episodes become lessons promoted through three tiers — private, committed to
+  the repo, then reused across all your projects once a second project
+  corroborates them. Cross-project lessons are reduced to shapes first, so no
+  code and no literal values travel with them.
+- **The Retrospective** asks whether it helped: which fixes held, which
+  **regressed** (proven again after being repaired), which defects never got an
+  accepted patch, and which approaches are repeated dead ends.
+- **The Advisor** proposes guardrails from that evidence — hooks, steering rules
+  and skills scoped to the files where fixes did not stick. Every proposal names
+  the episodes that motivated it, and nothing is written until you accept it.
+
+### It never edits your code behind your back
+
+Investigations are read-only. The repair agent runs through a router whose
+`write_fix` is a deliberate no-op, so patches come back as diffs you choose to
+apply. The one command that writes anything is `buggy suggest --apply`, and only
+into `.kiro/`, and only for a proposal you named.
+
+### It works without tests
+
+Proving needs a function and optionally a specification. It does not need
+existing coverage — which is what makes it usable on code nobody has touched in
+five years.
+
+### Multi-agent architecture
 
 | Agent | Role |
 |-------|------|
-| **Parser Agent** | Tree-sitter CST parsing, LSP symbol resolution, call graph construction |
-| **Bug Proving Agent** | Backward slicing, spec refinement, SA-Fuzz, proof certificate generation |
-| **Repair Agent** | Specification-guided patch generation with defect context |
+| **Parser Agent** | Tree-sitter CST parsing with error recovery, LSP symbol resolution |
+| **Bug Proving Agent** | Edge-case-first fuzzing, five oracles, three-pillar certification |
+| **Repair Agent** | Trigger-derived patch generation with TypeScript and Python dialects |
 | **Classifier Agent** | 66-dimensional overfitting detection, patch approval/rejection |
-| **Sandbox Agent** | Hardware-isolated execution, oracle checking, OAP passport enforcement |
+| **Sandbox Agent** | Firecracker microVM execution — built, not yet wired (see [Roadmap](#roadmap)) |
 
-Each agent does one thing well. The orchestrator coordinates the pipeline.
+An orchestrator runs four phases in order: Parse → Prove → Repair → Classify.
+Phase 2 is a gate; if nothing is certified, no repair is attempted.
 
-### Hardware-Isolated Sandbox
+### Execution isolation — stated plainly
 
-Patches run inside Firecracker microVMs — the same technology behind AWS Lambda. Not Docker containers with shared kernels. Full hardware isolation with:
+Untrusted code runs in an **OS child process** with a timeout. That is the
+boundary today.
 
-- Memory limits (configurable, 64MB–8GB)
-- Network egress denied by default
-- OAP (Origin-Aware Policy) passports for every execution
-- Circuit breakers that terminate runaway processes
+A full Firecracker microVM executor is implemented in the repo, but it is not
+wired into the pipeline and requires a Linux host with KVM. Until it is,
+`sandbox.memory_limit_mb` is recorded rather than enforced, and you should treat
+the isolation as process-level. If you are investigating genuinely hostile code,
+run Buggy in a VM or container you control.
 
-### Zero-Configuration IDE Integration
+### Zero-configuration IDE integration
 
-In Kiro, Buggy works automatically with zero setup beyond committing the `.kiro/` folder. Six hooks fire on IDE events — file saves, AI-generated code, spec tasks — running proof-carrying analysis without any manual commands. Developers get bug detection as a background service:
+In Kiro, Buggy works with no setup beyond committing the `.kiro/` folder. **7
+hooks** fire on IDE events — file saves, AI-generated code, spec tasks — so
+analysis runs without manual commands:
 
-- **On save**: Every file save triggers automatic analysis
-- **Post-write**: AI-generated code is verified before developers review it
-- **Self-healing**: A feedback loop re-checks and fixes code up to 3 iterations
-- **Spec evolution**: New implementations are verified against their specifications
+- **On save** — the saved file is analysed immediately
+- **Post-write** — AI-generated code is checked before you review it
+- **Recall-first** — before editing, prior lessons for that code are consulted
+- **Self-healing** — a feedback loop re-checks and fixes, up to 3 iterations
+- **Spec evolution** — new implementations are verified against their specs
 
-The entire team gets automatic bug detection by committing one folder to the repo. No per-developer setup, no CI configuration, no commands to remember.
+Plus **9 steering files** for PR review, git-diff analysis, spec inference and
+type-narrowing workflows. One commit, and the whole team has it.
 
-### Plug-and-Play MCP Integration
-
-One command adds the debugger to any MCP-compatible IDE:
+### Plug-and-play MCP integration
 
 ```json
 {
   "mcpServers": {
     "buggy": {
       "command": "npx",
-      "args": ["-p", "buggy-debugger", "buggy-mcp"]
+      "args": ["buggy-mcp"]
     }
   }
 }
 ```
 
-Works with Cursor, Windsurf, VS Code + Copilot, Claude Desktop, and any tool that speaks MCP.
+Works with Kiro, Cursor, Windsurf, VS Code + Copilot, Claude Desktop, and
+anything else that speaks MCP.
 
 ---
 
 ## Target Users
 
-### Senior Engineers at Production-Critical Companies
+### Senior engineers on production-critical systems
 
-You maintain payment systems, trading platforms, or infrastructure that can't go down. You need guarantees, not suggestions. Buggy gives you mathematical certainty that a bug exists and that a fix generalizes beyond the test suite.
+You maintain payments, trading, or infrastructure that cannot go down. You want
+the failing input in your hand, not a ranked list of maybes — and you want to
+know whether the fix generalizes past the case that caught it.
 
-### Platform Teams Building Internal Developer Tools
+### Platform teams building internal developer tools
 
-You're building the next generation of developer experience for your org. Embed the debugger as a service — the programmatic API and MCP server integrate into CI pipelines, internal dashboards, and custom toolchains.
+Embed it as a service. The programmatic API and the MCP server drop into
+internal dashboards and custom toolchains.
 
-### Security Teams Needing Formal Verification
+### Teams modernizing legacy code
 
-Security patches are high-stakes. A fix that doesn't generalize means a vulnerability that reopens. The overfitting blocker ensures patches hold under adversarial inputs, not just the ones in your regression suite.
+Bugs hide in code nobody understands anymore. Proving works without existing
+test coverage, so you can point it at the scary module on day one.
 
-### AI Coding Tool Builders
+### AI coding tool builders
 
-You're building the next Copilot, Cursor, or Devin. Embed proof-carrying debugging via MCP to give your AI assistant the ability to not just generate code, but prove its fixes are correct.
+Give your agent the ability to check its own work: call `buggy_investigate` over
+MCP and get back a reproducible witness plus patches that survived an
+overfitting screen.
 
 ---
 
 ## Use Cases
 
-### CI/CD Pipeline Integration
+### Investigating a risky function
 
-Prove bugs exist before merging fixes. Add the debugger to your PR workflow:
+Point it at the function you least want to be wrong. If an input breaks it, you
+get that input, the output it produced, and the postcondition it violated.
 
-1. Developer submits a fix
-2. Debugger re-proves the original bug
-3. Debugger classifies the patch for overfitting
-4. PR gets a proof certificate badge — or a rejection with explanation
+### Validating a security patch
 
-### Security Patch Validation
+A fix that does not generalize reopens the vulnerability. The overfitting
+classifier screens patches on structural grounds rather than on whether they
+satisfy the PoC exploit.
 
-When a CVE lands, you need to move fast and ship a fix. But fast fixes that don't generalize reopen vulnerabilities. Buggy validates that your security patch holds under the full specification — not just the PoC exploit.
+### Augmenting an AI coding assistant
 
-### Legacy Code Modernization
+1. The assistant is asked to change some code
+2. `buggy_recall` surfaces what worked and what failed on that code before
+3. `buggy_investigate` returns a certificate and screened patches
+4. The developer sees a fix backed by a reproducible failing input
 
-You're migrating a 10-year-old codebase. Bugs are hiding in code nobody understands anymore. The debugger's backward slicing and proof generation work on code without existing test coverage — it doesn't need tests to prove a bug exists.
+### Team-wide automatic detection
 
-### AI Coding Assistant Augmentation
+1. Commit `.kiro/`
+2. Everyone who opens the project in Kiro gets analysis on save, on AI edit, and
+   on spec task
+3. `buggy retrospect` reports whether fixes are actually holding
+4. `buggy suggest` turns recurring defects into guardrails
 
-Give Copilot, Cursor, or your custom AI agent proof-backed repairs:
-
-1. AI assistant detects a potential issue
-2. Calls `buggy_investigate` via MCP
-3. Gets back a proof certificate and approved patches
-4. Presents mathematically-verified fixes to the developer
-
-### Team-Wide Automatic Bug Detection
-
-Deploy Buggy across your entire team with a single commit. With Kiro integration:
-
-1. Commit the `.kiro/` folder containing hooks and steering files
-2. Every developer who opens the project in Kiro gets automatic bug detection
-3. Bugs are caught on every file save, every AI edit, and every spec task — no commands needed
-4. The self-healing loop (`buggy-auto-fix`) re-checks code up to 3 times after each agent action
-5. Bug trends are tracked automatically, and new team members are warned about historically risky files
-
-Zero configuration per developer. Zero commands to remember. The entire team gets proof-carrying debugging as a background service.
+No per-developer setup, no commands to memorize.
 
 ---
 
 ## How It Works
 
-### Core Pipeline
-
 ```
 ┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────────┐
 │  1. PARSE   │────▶│  2. PROVE    │────▶│  3. REPAIR   │────▶│  4. CLASSIFY     │
 │             │     │              │     │              │     │                  │
-│ Tree-sitter │     │ Backward     │     │ Spec-guided  │     │ 66-dim feature   │
-│ CST + LSP   │     │ slicing +    │     │ patch        │     │ vector analysis  │
-│ resolution  │     │ SA-Fuzz +    │     │ generation   │     │                  │
-│             │     │ proof cert   │     │              │     │ Approve/Reject   │
-└─────────────┘     └──────────────┘     └──────────────┘     └──────────────────┘
-                           │                     │                       │
-                           ▼                     ▼                       ▼
+│ Tree-sitter │     │ Edge-case    │     │ Trigger-     │     │ 66-dim feature   │
+│ CST + LSP   │     │ fuzzing +    │     │ derived      │     │ vector analysis  │
+│ resolution  │     │ 5 oracles +  │     │ guards, TS   │     │                  │
+│             │     │ 3-pillar     │     │ and Python   │     │ Approve/Reject   │
+│             │     │ certification│     │ dialects     │     │                  │
+└─────────────┘     └──────┬───────┘     └──────────────┘     └────────┬─────────┘
+                           │                                           │
+                      no certificate ──▶ unconfirmed, stop             │
+                                                                       ▼
                     ┌──────────────────────────────────────────────────────────┐
-                    │              SANDBOX AGENT (Firecracker microVM)          │
-                    │   Available on-demand to all agents throughout pipeline   │
+                    │  WATCHLIST — every outcome recorded as an episode and    │
+                    │  promoted to a lesson, recalled before the next edit     │
                     └──────────────────────────────────────────────────────────┘
 ```
 
-### Kiro Integration Flow
+**Step 1: Parse** — Tree-sitter produces a fault-tolerant CST. LSP resolves symbols.
 
-Inside Kiro, the entire pipeline is triggered automatically via hooks — no manual commands:
+**Step 2: Prove** — Real execution, not static reasoning. Edge-case inputs run
+the function in a child process; five oracles check the result; survivors are
+certified against admissibility, soundness and reproducibility. **No certificate
+means no repair** — the run ends as `unconfirmed` rather than guessing.
 
-```
-┌──────────────┐     ┌──────────────┐     ┌──────────────────┐     ┌────────────────┐
-│  FILE EDIT   │────▶│  KIRO HOOK   │────▶│  AGENT PROMPT    │────▶│  MCP TOOL CALL │
-│              │     │              │     │                  │     │                │
-│ Developer    │     │ buggy-on-save│     │ Kiro's LLM      │     │ buggy_analyze  │
-│ saves file   │     │ fires        │     │ interprets hook  │     │ buggy_investigate│
-│              │     │              │     │ instructions     │     │                │
-└──────────────┘     └──────────────┘     └──────────────────┘     └───────┬────────┘
-                                                                           │
-                     ┌──────────────┐     ┌──────────────────┐            │
-                     │  APPLY FIX   │◀────│  RESULTS         │◀───────────┘
-                     │              │     │                  │
-                     │ Agent applies│     │ Proof certificate│
-                     │ approved     │     │ + approved       │
-                     │ patches      │     │ patches returned │
-                     └──────────────┘     └──────────────────┘
-```
+**Step 3: Repair** — The triggering input is analysed and a guard is generated
+for that failure mode, rendered through the dialect for the target language.
 
-**The self-healing loop** (`buggy-auto-fix`): After the agent applies a fix, the hook re-triggers analysis on the modified file. If new issues are found, it fixes them again — up to 3 iterations. This catches cascading bugs introduced by patches.
+**Step 4: Classify** — Each patch is scored on a 66-dimensional AST difference
+vector. Overfit patches are rejected with their top contributing factors named.
 
-**Step 1: Parse** — Tree-sitter produces a fault-tolerant CST. LSP resolves symbols. Call graph is built.
-
-**Step 2: Prove** — The proving engine uses REAL CODE EXECUTION, not just static analysis. It generates edge-case inputs (0, NaN, Infinity, empty arrays), executes the function in an isolated subprocess, and checks postconditions against actual outputs. Backward slicing narrows the search space. A proof-of-failure certificate is generated with formal guarantees (admissibility + soundness + reproducibility).
-
-**Step 3: Repair** — Using the proof certificate as a guide, the repair agent generates candidate patches that address the proven failure mode.
-
-**Step 4: Classify** — Each patch is analyzed against a 66-dimensional AST difference vector. Patches that show signs of overfitting are rejected. Only generalizing fixes are approved.
-
----
-
-## Pricing
-
-### Free (Open Source Core)
-
-- CLI tool + MCP server
-- **Kiro integration (all 6 hooks + 8 steering files) — included**
-- Single-agent mode (Parser + basic analysis)
-- 100 investigations per month
-- Community support
-- Apache 2.0 license
-
-### Pro — $49/seat/month
-
-- Full 5-agent pipeline
-- Firecracker sandbox isolation
-- Unlimited investigations
-- Priority support
-- Overfitting detection with full 66-dim classifier
-- CI/CD webhook integration
-
-### Enterprise — Custom
-
-- Self-hosted deployment
-- Custom plug development
-- Audit trail and compliance reports (SOC2, HIPAA)
-- Dedicated support engineer
-- SLA guarantees
-- SSO / SAML integration
-- Air-gapped deployment option
+Then every outcome — proven, unconfirmed or halted — is recorded to the
+Watchlist, so the next run starts better informed than this one did.
 
 ---
 
@@ -306,36 +335,45 @@ Inside Kiro, the entire pipeline is triggered automatically via hooks — no man
 
 | Tool | What it does | What's missing |
 |------|-------------|----------------|
-| **SonarQube** | Static analysis rules | No proof bugs exist. High false-positive rate. No repair. |
-| **Snyk** | Dependency vulnerability scanning | Doesn't analyze your code logic. No patch generation. |
-| **GitHub Copilot** | AI code generation | Generates patches with no guarantee of correctness. No overfitting detection. |
-| **Cursor** | AI-assisted editing | Great UX, but no formal verification. Patches are "probably right." |
-| **Amazon CodeGuru** | ML-based code review | Pattern matching, not proof. Suggestions, not verified fixes. |
-| **Infer (Meta)** | Separation logic analysis | Strong formal foundations but no repair pipeline. Research-grade UX. |
-| **Buggy** | **Prove → Repair → Verify** | **Full pipeline: mathematical proof, spec-guided repair, overfitting rejection, hardware isolation.** |
+| **SonarQube** | Static analysis rules | No evidence the bug is reachable. High false-positive rate. No repair. |
+| **Snyk** | Dependency vulnerability scanning | Does not analyze your code logic. No patch generation. |
+| **GitHub Copilot** | AI code generation | Patches come with no correctness check. No overfitting detection. |
+| **Cursor** | AI-assisted editing | Great UX, but patches are "probably right." |
+| **Amazon CodeGuru** | ML-based code review | Pattern matching. Suggestions, not demonstrated defects. |
+| **Infer (Meta)** | Separation logic analysis | Genuine formal foundations — stronger than Buggy here — but no repair pipeline, research-grade UX. |
+| **Buggy** | **Demonstrate → Repair → Screen** | **Reproducible failing input, trigger-derived repair, overfitting rejection, and memory across runs.** |
+
+Where Buggy is weaker: Infer and similar tools reason formally and can cover
+paths no fuzzer will reach. Buggy's claim is not that it proves more — it is
+that what it reports comes with a concrete input you can re-run, and that it
+screens its own fixes.
 
 ---
 
 ## Get Started
 
-### Quick Start (CLI)
+### CLI
 
 ```bash
+# NOTE: the package is `buggy-debugger`. Plain `buggy` on npm is an
+# unrelated issue tracker.
 npm install -g buggy-debugger
+
+cd /path/to/your/project
 buggy init
-buggy investigate --function processPayment --file src/payments.ts
+
+buggy analyze src/payments.ts
+buggy investigate processPayment --file src/payments.ts
 ```
 
-### MCP Integration (Any AI IDE)
-
-Add to your MCP configuration:
+### MCP (any AI IDE)
 
 ```json
 {
   "mcpServers": {
     "buggy": {
       "command": "npx",
-      "args": ["-p", "buggy-debugger", "buggy-mcp"]
+      "args": ["buggy-mcp"]
     }
   }
 }
@@ -346,29 +384,76 @@ Add to your MCP configuration:
 ```typescript
 import { ProofDebugger } from 'buggy-debugger';
 
-const debugger = new ProofDebugger({ projectRoot: '/path/to/project' });
-await debugger.initialize();
+const dbg = new ProofDebugger({ projectRoot: '/path/to/project' });
+await dbg.initialize();
 
-const report = await debugger.investigate({
+// What do we already know about this code?
+const prior = dbg.recall({ functionId: 'processPayment', filePath: 'src/payments.ts' });
+
+const report = await dbg.investigate({
   functionId: 'processPayment',
   filePath: 'src/payments.ts',
   specification: {
-    preconditions: ['amount > 0', 'account.balance >= amount'],
-    postconditions: ['account.balance == old(balance) - amount'],
+    preconditions: ['amount > 0'],
+    postconditions: ['isFinite(result)', 'result >= 0'],
   },
 });
 
 if (report.status === 'confirmed_and_repaired') {
-  console.log(`Bug proven. ${report.approved_patches.length} verified fixes available.`);
+  console.log(`Defect demonstrated. ${report.approved_patches.length} screened fixes.`);
 }
 
-await debugger.shutdown();
+await dbg.shutdown();
 ```
 
 ---
 
-## Contact
+## Roadmap
 
-- **GitHub**: [buggy](https://github.com/buggy)
-- **Documentation**: [docs.buggy.dev](https://docs.buggy.dev)
-- **Enterprise inquiries**: enterprise@buggy.dev
+Everything below is **not built, or built but not wired into the live pipeline.**
+It is listed here so the sections above can stay honest.
+
+### Built, not yet wired
+
+- **Firecracker microVM isolation** — a complete executor driving the Firecracker
+  REST API exists; it needs a Linux host with KVM and is not connected to the
+  orchestrator. Today's boundary is an OS child process, and memory limits are
+  recorded rather than enforced.
+- **Compile and test filtering** of patches before classification. Today an
+  approved patch has passed the overfitting screen only — it has not been
+  compiled or test-run for you.
+- **PROBE** adversarial property refinement
+- **SpecTune** alpha-consistency refinement
+- **TrajSpec** commit-history interpretation
+- **SAFuzz** region-biased mutation
+- **Backward slicing** for defect localisation
+- **Differential test generation**
+- **OAP passports, circuit breaker, snapshot pool**
+- **Call-graph population** — graph queries return empty on a fresh project
+- **The four plug-in extension points** — the `plugs:` config key is parsed and
+  validated, then ignored
+
+### Not built
+
+- CI/CD integration: PR workflow, proof-certificate badges, webhooks
+- Languages beyond TypeScript, JavaScript and Python
+- Hosted or team-server deployment
+- Any form of licence gating, metering or paid tier
+
+### Commercial model
+
+Buggy is MIT licensed and entirely free. There is no paid tier, no usage
+metering and no feature gating anywhere in the code. If a commercial offering
+ever exists it will be announced here; until then, treat any pricing you see
+attributed to this project as fiction.
+
+---
+
+## Links
+
+- **Repository**: [github.com/himanshusaini-afk/buggy](https://github.com/himanshusaini-afk/buggy)
+- **Site**: [himanshusaini-afk.github.io/buggy](https://himanshusaini-afk.github.io/buggy/)
+- **Features — what actually ships**: [FEATURES.md](FEATURES.md)
+- **Usage guide**: [USAGE-GUIDE.md](USAGE-GUIDE.md)
+- **Technical notes**: [TECHNICAL.md](TECHNICAL.md)
+- **Issues**: [github.com/himanshusaini-afk/buggy/issues](https://github.com/himanshusaini-afk/buggy/issues)

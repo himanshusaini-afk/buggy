@@ -4,6 +4,10 @@ A multi-agent system that autonomously analyzes code, proves bugs exist with for
 
 **[→ buggy on the web](https://himanshusaini-afk.github.io/buggy/)** — what it does, how the pipeline works, and what currently runs. Source in [`site/`](site/).
 
+**[→ Features](docs/FEATURES.md)** — the full inventory, including a
+module-by-module split of what is wired into the live pipeline and what is
+library code only.
+
 ## Quick Start
 
 ```bash
@@ -146,6 +150,17 @@ const debugger_ = new ProofDebugger({
 });
 
 await debugger_.initialize();
+
+// What do we already know about this code? (what the buggy-recall-first hook uses)
+const prior = debugger_.recall({
+  functionId: 'processPayment',
+  filePath: 'src/payments.ts',
+});
+console.log(prior.seen_before); // has this exact target burned us before?
+console.log(prior.lessons);     // ranked lessons — what worked, what was rejected
+
+// How much experience has accumulated?
+console.log(debugger_.watchlistStats()); // episodes, distinct lessons, global coverage
 
 // Investigate a specific function
 const report = await debugger_.investigate({
@@ -362,7 +377,12 @@ probe:
   search_budget: 100               # Max property candidates
   max_refinement_iterations: 10    # Max iterations per property
 
-# Optional: custom plug-ins
+# Experience memory — see "Learning Across Runs"
+watchlist:
+  enabled: true                    # Set false to record nothing
+  scope: layered                   # local | team | global | layered
+
+# Optional: custom plug-ins (parsed and validated, but not yet loaded)
 plugs:
   parsing: ./plugs/parser
   oracles:
@@ -373,11 +393,19 @@ plugs:
 
 ### Defaults
 
+Only these have schema defaults. Everything else above is required — and `buggy
+init` writes all of it for you, so hand-editing is optional.
+
 | Field | Default |
 |-------|---------|
 | `lsp.initialization_options` | `{}` |
 | `sandbox.egress_policy` | `deny` |
 | `plugs` | `undefined` (no custom plugs) |
+| `watchlist.enabled` | `true` |
+| `watchlist.scope` | `layered` |
+
+`sandbox.memory_limit_mb` is validated and recorded but **not enforced** —
+OS-level memory capping needs the Firecracker executor, which is not wired.
 
 ## Architecture Overview
 
@@ -403,11 +431,15 @@ The system consists of five specialized agents coordinated by an orchestrator:
 ```
 
 **Pipeline flow:**
-1. **Parser Agent** — Tree-sitter CST parsing, symbol resolution via LSP, call graph construction
-2. **Bug-Proving Agent** — PROBE loop + fuzzing + specification refinement → proof-of-failure certificate
-3. **Repair Agent** — AST-aware patch generation with multi-stage filtering (compile → emulate → test)
-4. **Classifier Agent** — PRISM-APCC overfitting detection using AST difference vectors
-5. **Sandbox Agent** — Isolated execution with resource limits, available on-demand to all agents
+1. **Parser Agent** — Tree-sitter CST parsing, symbol resolution via LSP
+2. **Bug-Proving Agent** — Edge-case-first execution fuzzing + five oracles → proof-of-failure certificate certified on admissibility, soundness and reproducibility
+3. **Repair Agent** — Trigger-derived patch generation with TypeScript and Python dialects
+4. **Classifier Agent** — PRISM-APCC overfitting detection using 66-dimensional AST difference vectors
+5. **Sandbox Agent** — Firecracker-backed isolated execution, available on-demand. **Wired as a stub today** — the live execution boundary is an OS child process
+
+Phase 2 is a gate: with no certificate the run ends as `unconfirmed`, and no
+repair is attempted. For what each phase does and does not include, see
+[Features → What runs today](docs/FEATURES.md#what-runs-today).
 
 **Data layer:**
 - SQLite graph database (WAL mode) stores CST nodes, edges, symbol resolutions, proofs, and patches
@@ -498,7 +530,10 @@ plugs:
   repair: ./plugs/ml-based-repair
 ```
 
-The debugger loads and validates plugs at startup, falling back to defaults if a plug fails to load.
+> **Not yet wired.** The plug types are exported and the registry is implemented
+> and tested, but nothing in the live pipeline loads it — the `plugs:` key is
+> parsed and validated, then ignored. The interfaces are stable enough to write
+> against; they just are not called yet.
 
 ## Development
 
