@@ -551,7 +551,32 @@ npm run test:integration
 
 # Run the CLI locally
 node dist/cli.js --help
+
+# Smoke test the published artefact (packs, installs into a clean
+# project, exercises every entry point). Runs automatically on publish.
+npm run smoke
 ```
+
+### The smoke test
+
+`npm run smoke` is the gate that the unit suite cannot be. The suite runs against
+`src/` with this repo's own `.npmrc` and `tsconfig`, so it passes happily while
+the *published* artefact is broken. The smoke test packs the tarball exactly as
+`npm publish` would, installs it into a throwaway project with **default** npm
+settings, and checks 15 things from the consumer's side:
+
+- the tarball builds, and leaks no `.env` / `.npmrc` / `.kiro` / credentials
+- it installs with strict peer resolution (the repo's `legacy-peer-deps` is not published)
+- both `buggy` and `buggy-mcp` bin shims link
+- every CLI command appears in `--help`; `init`, `analyze` and `investigate` work
+- `--json` stdout is parseable — a regression guard, since config diagnostics once went to stdout and corrupted it
+- `retrospect` and `suggest` read back the history the investigation just recorded
+- the MCP server answers `initialize` + `tools/list` over stdio with all 10 tools
+- `import { ProofDebugger } from 'buggy-debugger'` works end to end
+- `dist/index.d.ts` ships
+
+It is wired to `prepublishOnly`, so `npm publish` cannot proceed unless it is
+green. Use `--keep` to leave the temp project behind for inspection.
 
 ### Shipping a change
 

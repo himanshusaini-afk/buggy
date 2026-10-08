@@ -53,6 +53,8 @@
     "prepare": "npm run build",
     "build": "tsc",
     "test": "vitest run",
+    "smoke": "node scripts/smoke-test.mjs",
+    "prepublishOnly": "node scripts/smoke-test.mjs",
     "test:watch": "vitest",
     "test:properties": "vitest run tests/properties",
     "test:unit": "vitest run tests/unit",
