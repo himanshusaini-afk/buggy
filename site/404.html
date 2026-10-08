@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Not found — Buggy</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0a0c10">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0c10'/%3E%3Cpath d='M9 16.5l4.2 4.2L23 11' stroke='%2353e0a6' stroke-width='3.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<!-- Absolute so the stylesheet resolves no matter how deep the bad URL was. -->
+<link rel="stylesheet" href="/buggy/assets/css/styles.css">
+<style>
+  .nf { min-height: 100vh; display: grid; place-items: center; text-align: center; padding: 40px 0; }
+  .nf__code {
+    font-family: var(--mono);
+    font-size: clamp(3.4rem, 13vw, 7rem);
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -.04em;
+    margin-bottom: 18px;
+  }
+  .nf h1 { font-size: clamp(1.3rem, 3.2vw, 1.9rem); margin-bottom: 14px; }
+  .nf p { color: var(--ink-mid); max-width: 46ch; margin: 0 auto 28px; }
+  .nf__actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+  .nf__cert {
+    margin: 34px auto 0;
+    max-width: 440px;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: .78rem;
+    line-height: 1.9;
+    background: #080a0e;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    color: var(--ink-dim);
+  }
+  .nf__cert b { color: var(--ink); font-weight: 500; }
+</style>
+</head>
+<body>
+
+<main class="nf">
+  <div class="wrap">
+    <p class="nf__code grad">404</p>
+    <h1>No proof for this one.</h1>
+    <p>
+      That page does not exist. Unlike the bugs Buggy reports, we could not
+      reproduce it.
+    </p>
+
+    <div class="nf__actions">
+      <a class="btn btn--primary" href="/buggy/">Back to the homepage</a>
+      <a class="btn btn--ghost" href="https://github.com/himanshusaini-afk/buggy">Open the repository</a>
+    </div>
+
+    <div class="nf__cert">
+      <div>Violated   <b>page exists</b></div>
+      <div>Input      <b><span id="badPath">/unknown</span></b></div>
+      <div>Output     <b>undefined</b></div>
+      <div>Status     <b>unconfirmed</b></div>
+    </div>
+  </div>
+</main>
+
+<script>
+  // Show what was actually requested. textContent keeps the path inert.
+  document.getElementById('badPath').textContent = location.pathname + location.search;
+</script>
+</body>
+</html>
