@@ -7,13 +7,31 @@ that can break on a toolchain upgrade.
 ```
 site/
 ├── index.html              single page
+├── 404.html                custom not-found page
 ├── assets/
 │   ├── css/styles.css      tokens, layout, animations
-│   └── js/main.js          canvas, typewriter, tabs, counters, copy buttons
+│   ├── js/main.js          canvas, typewriter, tabs, counters, copy buttons
+│   ├── og-card.html        source for the social preview image
+│   └── og.png              1200x630 social preview (generated)
 ├── .nojekyll               serve files as-is
 ├── robots.txt
 └── sitemap.xml
 ```
+
+## Regenerating the social preview
+
+`assets/og.png` is rendered from `assets/og-card.html` at exactly 1200×630. To
+update it, edit the card and re-shoot it with headless Chrome while the site is
+being served locally:
+
+```bash
+chrome --headless=new --window-size=1200,630 \
+       --screenshot=site/assets/og.png \
+       http://127.0.0.1:8080/assets/og-card.html
+```
+
+The card is kept in the repo so the image stays reproducible rather than being a
+binary nobody can edit.
 
 ## Previewing locally
 
