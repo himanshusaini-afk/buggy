@@ -510,6 +510,20 @@ npm run test:integration
 node dist/cli.js --help
 ```
 
+### Shipping a change
+
+Every change ships as a complete unit: code, README, and the public site in
+`site/`. The full checklist lives in
+[`.kiro/steering/release-checklist.md`](.kiro/steering/release-checklist.md)
+and is loaded automatically when working in Kiro.
+
+The short version:
+
+1. Update this README if the change is user-visible — CLI, API, MCP tools, config, or the "what runs today" split.
+2. Update `site/` to match. It has no build step; the stat counters and the MCP tool list go stale silently.
+3. `npm run build && npx vitest run`, then commit specific files and push to the current branch.
+4. Confirm the [Pages deploy](https://github.com/himanshusaini-afk/buggy/actions) went green. Only pushes touching `site/**` trigger it.
+
 ## License
 
 MIT
