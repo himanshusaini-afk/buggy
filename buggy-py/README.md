@@ -25,8 +25,8 @@ A native Python reimplementation of the TypeScript original, which lives in the
 parent directory. It is not a port of that codebase; it is a rewrite of the
 third of it that runs, for reasons set out in [Why a rewrite](#why-a-rewrite).
 
-**Status: early.** The prove half works end to end and is tested. Repair,
-classification, persistence and the MCP server are not written yet. See
+**Status: early.** Proving, repair and the MCP server work and are tested.
+Persistence is not written yet. See
 [What exists today](#what-exists-today) - that section is the project's
 credibility and is kept honest.
 
@@ -42,7 +42,14 @@ Or run it without installing:
 
 ```bash
 PYTHONPATH=. python3 -m buggy.cli --help
+PYTHONPATH=. python3 -m buggy.mcp          # the MCP server
 ```
+
+**Command names collide with the TypeScript implementation.** That package also
+installs `buggy` and `buggy-mcp`. They are separate ecosystems, so nothing
+breaks until both are on `PATH`, at which point whichever comes first wins.
+If you use both, install this one in a virtualenv, or rename these two entries
+in `pyproject.toml`.
 
 The lack of dependencies is deliberate. The tool inspects your project, so it
 must not be able to disturb your project's environment, and it should install on
@@ -85,6 +92,7 @@ interpreter internals.
 | `buggy investigate <name> -f <file>` | investigates one function |
 | `buggy repair <name> -f <file>` | investigates, then proposes fixes and verifies each by execution |
 | `buggy scan <file>` | investigates every supported function in a file |
+| `buggy-mcp` | runs as an MCP server over stdio, for use from an agent |
 
 Useful flags: `--pre` / `--post` (repeatable), `--budget N` (inputs to execute,
 default 300), `--timeout S` (per call, default 2), `--determinism N`,
@@ -217,6 +225,42 @@ guard reaches through `self`.
 
 **Nothing is ever written to your file.** Patches are returned as data.
 
+### As an MCP server
+
+`buggy-mcp` speaks MCP over stdio, so an agent can prove and repair defects
+while it works. Copy an entry from
+[`mcp-config.example.json`](mcp-config.example.json); for Kiro that goes in
+`.kiro/settings/mcp.json`.
+
+```json
+{
+  "mcpServers": {
+    "buggy": {
+      "command": "buggy-mcp",
+      "autoApprove": ["buggy_functions", "buggy_investigate", "buggy_scan"]
+    }
+  }
+}
+```
+
+Four tools: `buggy_functions`, `buggy_investigate`, `buggy_repair` and
+`buggy_scan`, mirroring the commands above. Each returns both human-readable
+text and `structuredContent`, and a certificate always carries a `reproduce`
+field holding the exact call to paste into a REPL.
+
+`buggy_repair` is deliberately **not** in the `autoApprove` list above. It
+writes nothing, but a patch is a change to your code and deserves a human
+glance.
+
+Implemented against the standard library rather than the official MCP SDK. The
+SDK installs cleanly, but brings 27 transitive packages including a web server
+and a crypto library, which is disproportionate for a stdio pipe and would end
+this package's dependency-free install. Supported methods are `initialize`,
+`ping`, `tools/list`, `tools/call`, and empty `resources/list` and
+`prompts/list`; protocol versions `2024-11-05` through `2026-07-28` are
+negotiated, and an unrecognised one is answered with a supported version as the
+spec requires.
+
 ## What "proven" means
 
 There is no solver and no symbolic reasoning. A certificate is a record of
@@ -338,12 +382,16 @@ Wired into the live pipeline and tested:
   against the four questions above, with regression and overfitting detection
   grounded in observed behaviour rather than a score
 - the `functions`, `investigate`, `repair` and `scan` commands, with `--json`
+- the MCP server: four tools over stdio, stdlib-only, with stdout isolated from
+  the protocol so a print in your code cannot break a session
 
 Not written yet, and not implied anywhere in the output:
 
 - **persistence** - nothing is written to disk. No graph database, no watchlist,
   no retrospective, no capability advisor.
-- **MCP server** - not started.
+- **resources and prompts** over MCP. `resources/list` and `prompts/list`
+  answer with empty lists so clients that probe them do not error, but nothing
+  is exposed that way.
 - **async functions** - refused with a reason; the worker has no event loop.
 - **special methods** - `__init__`, `__add__` and the rest are refused; their
   calling conventions vary too much to guess at.
@@ -367,7 +415,7 @@ python3 -m unittest discover -s tests -t .    # no installs needed
 pytest
 ```
 
-140 tests, all passing, about 15 seconds. `tests/test_prove.py` includes the
+169 tests, all passing, about 34 seconds. `tests/test_prove.py` includes the
 parity baseline against the recorded TypeScript run and is skipped if the
 example sources are absent. `tests/test_repair.py` injects a deliberately
 sabotaged patch and a deliberately overfit one, to check that the evidence

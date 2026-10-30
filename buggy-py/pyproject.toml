@@ -30,6 +30,7 @@ dev = ["pytest>=8"]
 
 [project.scripts]
 buggy = "buggy.cli:main"
+buggy-mcp = "buggy.mcp:main"
 
 [tool.setuptools.packages.find]
 include = ["buggy*"]

@@ -1,0 +1,31 @@
+{
+  "//": "Copy the 'buggy' entry into your client's MCP config. For Kiro that is .kiro/settings/mcp.json (per workspace) or ~/.kiro/settings/mcp.json (all workspaces).",
+  "//2": "No install needed if you point at the checkout: see the 'buggy-from-source' variant below.",
+  "mcpServers": {
+    "buggy": {
+      "command": "buggy-mcp",
+      "args": [],
+      "env": {},
+      "disabled": false,
+      "autoApprove": [
+        "buggy_functions",
+        "buggy_investigate",
+        "buggy_scan"
+      ]
+    },
+    "buggy-from-source": {
+      "//": "Use this instead of 'buggy' when running from a checkout rather than an install. Replace the path with your own.",
+      "command": "python3",
+      "args": ["-m", "buggy.mcp"],
+      "env": {
+        "PYTHONPATH": "/absolute/path/to/debugger/buggy-py"
+      },
+      "disabled": true,
+      "autoApprove": [
+        "buggy_functions",
+        "buggy_investigate",
+        "buggy_scan"
+      ]
+    }
+  }
+}
