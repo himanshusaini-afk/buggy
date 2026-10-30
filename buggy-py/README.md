@@ -83,6 +83,7 @@ interpreter internals.
 |---|---|
 | `buggy functions <file>` | lists functions, their signatures, and which are investigable |
 | `buggy investigate <name> -f <file>` | investigates one function |
+| `buggy repair <name> -f <file>` | investigates, then proposes fixes and verifies each by execution |
 | `buggy scan <file>` | investigates every supported function in a file |
 
 Useful flags: `--pre` / `--post` (repeatable), `--budget N` (inputs to execute,
@@ -162,6 +163,59 @@ for warning in report.warnings:       # specifications that did not run
 ```
 
 `investigate_file` investigates a whole module while reusing one worker.
+
+### Repair
+
+`buggy repair` proposes fixes for a proven failure and then **tests** each one.
+
+```
+  ✓ VERIFIED  return 0.0 when budget == 0
+      guards the proven trigger (budget zero)
+      fixes the trigger, 37 working inputs unchanged, 2/2 similar inputs also fixed
+            BUG: `budget == 0` raises ZeroDivisionError.
+            """
+      +     if budget == 0:
+      +         return 0.0
+            return (spent / budget) * 100
+```
+
+Every candidate has to earn its verdict against four questions, which is
+affordable because a call costs ~0.015 ms:
+
+1. **Does it parse?** A patch that breaks the file is discarded.
+2. **Does it fix the proven trigger?** The exact input from the certificate is
+   re-run. The test is that the *proven* failure is gone, not that nothing is
+   raised, so converting a `ZeroDivisionError` into a documented `ValueError`
+   counts as a fix.
+3. **Does it break anything that worked?** Every input the original handled
+   correctly is re-run, and a changed result is a regression. "Handled
+   correctly" excludes inputs that returned a value violating a stated
+   postcondition, and inputs your preconditions exclude: a patch must not be
+   blamed for changing behaviour on a call you said would never happen.
+4. **Does it generalise?** Inputs sharing the trigger's shape (the same zero
+   denominator with different numerators, other empty collections) are
+   generated, screened to keep only those that fail the same way in the
+   original, and must be handled too.
+
+Question 4 is the honest overfitting check. A patch that special-cases the one
+input that caught it passes 1–3 and fails here, on evidence rather than on a
+coefficient. The verdicts are `verified`, `overfit` and `rejected`, each shown
+with the reason:
+
+```
+  ✗ REJECTED  always return 0.0
+      changes behaviour on [5, 2]: was ok:2.5, now ok:0.0 (37 of 38 inputs affected)
+
+  ~ OVERFIT   special-case exactly the triggering input
+      only handles the exact input that caught it (0 of 4 similar inputs fixed)
+```
+
+The strategies are driven by the certificate, not by pattern-matching the
+source: an early-return guard, a `raise`, a clamp for a magnitude problem such
+as a discount above 100%, and a `None` substitution. For an instance method the
+guard reaches through `self`.
+
+**Nothing is ever written to your file.** Patches are returned as data.
 
 ## What "proven" means
 
@@ -280,18 +334,13 @@ Wired into the live pipeline and tested:
   all-edge / random schedule for wide signatures
 - the five oracles, with propagation and type-confusion ranking
 - three-pillar verification and certificates
-- the `functions`, `investigate` and `scan` commands, with `--json`
+- repair: certificate-driven patch strategies, each verified by execution
+  against the four questions above, with regression and overfitting detection
+  grounded in observed behaviour rather than a score
+- the `functions`, `investigate`, `repair` and `scan` commands, with `--json`
 
 Not written yet, and not implied anywhere in the output:
 
-- **repair** — no patch generation. The original's `pythonDialect` is a good
-  starting point; its classifier is not (see below).
-- **classification** — deliberately deferred. In the parent repo's recorded
-  runs, the classifier rejected **all 21** generated patches across both
-  languages, scoring the correct `if people == 0: return 0.0` guard at 93%
-  likely-overfit. Scores occupied `[0.86, 0.99]` against a 0.5 threshold, so
-  `confirmed_and_repaired` was unreachable. The scaling needs fixing before the
-  formula is worth porting.
 - **persistence** — nothing is written to disk. No graph database, no watchlist,
   no retrospective, no capability advisor.
 - **MCP server** — not started.
@@ -318,9 +367,11 @@ python3 -m unittest discover -s tests -t .    # no installs needed
 pytest
 ```
 
-122 tests, all passing, about 11 seconds. `tests/test_prove.py` includes the
+140 tests, all passing, about 15 seconds. `tests/test_prove.py` includes the
 parity baseline against the recorded TypeScript run and is skipped if the
-example sources are absent.
+example sources are absent. `tests/test_repair.py` injects a deliberately
+sabotaged patch and a deliberately overfit one, to check that the evidence
+actually rejects them.
 
 ## License
 

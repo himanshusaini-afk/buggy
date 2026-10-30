@@ -47,6 +47,7 @@ __all__ = [
     "check_postconditions",
     "check_determinism",
     "canonical",
+    "comparison_key",
     "outcomes_differ",
     "ENVIRONMENT_EXCEPTIONS",
 ]
@@ -325,6 +326,39 @@ def canonical(result: ExecResult) -> str:
         return "ok:" + json.dumps(value, sort_keys=True, default=repr)
     except (TypeError, ValueError):  # pragma: no cover - default= makes this rare
         return "ok:" + repr(value)
+
+
+def _normalise_zeros(value: Any) -> Any:
+    """Fold -0.0 to 0.0, recursively."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float) and value == 0.0:
+        return 0.0
+    if isinstance(value, list):
+        return [_normalise_zeros(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_normalise_zeros(v) for v in value)
+    if isinstance(value, dict):
+        return {k: _normalise_zeros(v) for k, v in value.items()}
+    return value
+
+
+def comparison_key(result: ExecResult) -> str:
+    """A key for asking "did this behave the same?", tolerant of signed zero.
+
+    Distinct from :func:`canonical`, which is deliberately strict. ``-0.0`` and
+    ``0.0`` are the same answer to any caller, and treating them as different
+    rejected a correct clamp fix: ``max(0, -0.0)`` returns the integer ``0``,
+    which flipped the sign of a zero result and looked like a behaviour change.
+    """
+    if result.outcome is not Outcome.OK:
+        return canonical(result)
+    normalised = ExecResult(
+        Outcome.OK,
+        value=_normalise_zeros(result.value),
+        fidelity=result.fidelity,
+    )
+    return canonical(normalised)
 
 
 def outcomes_differ(results: list[ExecResult]) -> bool:

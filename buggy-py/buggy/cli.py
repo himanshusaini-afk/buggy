@@ -26,6 +26,7 @@ from .inspection import (
     find_functions,
 )
 from .prove import Config, investigate
+from .repair import propose
 from .types import Report
 
 # ─── Presentation ────────────────────────────────────────────────────────────
@@ -230,6 +231,83 @@ def cmd_investigate(args: argparse.Namespace) -> int:
     return 1 if report.status == "skipped" else 0
 
 
+_VERDICT_STYLE = {"verified": "green", "overfit": "yellow", "rejected": "red"}
+_VERDICT_MARK = {"verified": "✓", "overfit": "~", "rejected": "✗"}
+
+
+def cmd_repair(args: argparse.Namespace) -> int:
+    config = Config(
+        max_executions=args.budget, timeout=args.timeout,
+        python=args.python, receiver=args.receiver,
+    )
+    report = investigate(
+        args.file, args.function,
+        preconditions=args.pre, postconditions=args.post, config=config,
+    )
+
+    if report.certificate is None:
+        if args.json:
+            _dump({"function": args.function, "status": report.status,
+                   "note": report.note, "candidates": []})
+        else:
+            _print_report(report, args.verbose)
+            print("  nothing to repair: no failure was proven.")
+            print()
+        return 0
+
+    result = propose(
+        args.file, args.function,
+        certificate=report.certificate,
+        preconditions=args.pre,
+        postconditions=args.post,
+        timeout=args.timeout,
+        python=args.python,
+    )
+
+    if args.json:
+        _dump({
+            "function": result.function,
+            "file": result.file,
+            "certificate": result.certificate,
+            "candidates": [
+                {"patch": p, "evidence": e, "verdict": e.verdict,
+                 "reason": e.reason, "diff": p.diff(
+                     Path(args.file).read_text(encoding="utf-8"))}
+                for p, e in result.candidates
+            ],
+        })
+        return 0
+
+    _print_report(report, args.verbose)
+    source = Path(args.file).read_text(encoding="utf-8")
+
+    print(paint("bold", f"  Candidate fixes ({len(result.candidates)})"))
+    print(paint("dim", "  " + "─" * 70))
+    if not result.candidates:
+        print("  none: the trigger did not suggest a guard.")
+        print()
+        return 0
+
+    for patch, evidence in result.candidates:
+        style = _VERDICT_STYLE.get(evidence.verdict, "dim")
+        mark = _VERDICT_MARK.get(evidence.verdict, "?")
+        print(f"  {paint(style, mark)} {paint(style, evidence.verdict.upper())}"
+              f"  {patch.summary}")
+        print(paint("dim", f"      {patch.rationale}"))
+        print(paint("dim", f"      {evidence.reason}"))
+        if args.verbose or evidence.verdict == "verified":
+            for line in patch.diff(source).splitlines():
+                colour = "green" if line.startswith("+") else "dim"
+                print(f"      {paint(colour, line)}")
+        print()
+
+    print(paint("dim", "  " + "─" * 70))
+    print("  Nothing was written to your file. Apply a fix yourself, or review "
+          "the diff above.")
+    print()
+    return 0
+
+
 def cmd_scan(args: argparse.Namespace) -> int:
     path = Path(args.file)
     try:
@@ -336,6 +414,16 @@ def build_parser() -> argparse.ArgumentParser:
     shared(p_inv)
     search_opts(p_inv)
     p_inv.set_defaults(handler=cmd_investigate)
+
+    p_repair = sub.add_parser(
+        "repair", help="investigate, then propose and verify fixes")
+    p_repair.add_argument("function")
+    p_repair.add_argument("-f", "--file", required=True)
+    p_repair.add_argument("--pre", action="append", default=[], metavar="EXPR")
+    p_repair.add_argument("--post", action="append", default=[], metavar="EXPR")
+    shared(p_repair)
+    search_opts(p_repair)
+    p_repair.set_defaults(handler=cmd_repair)
 
     p_scan = sub.add_parser("scan", help="investigate every function in a file")
     p_scan.add_argument("file")

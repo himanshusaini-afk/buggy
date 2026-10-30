@@ -288,6 +288,42 @@ def evaluate_all(
     return [(c, c.evaluate(bindings)) for c in conditions]
 
 
+def preconditions_hold(
+    conditions: list[Condition],
+    args: list[Any],
+    names: tuple[str, ...],
+    receiver_names: tuple[str, ...] = (),
+    receiver_args: tuple[Any, ...] = (),
+) -> tuple[bool, str | None]:
+    """Whether an input is admissible under `conditions`.
+
+    Shared by the search, which uses it to skip inputs, and by repair, which
+    uses it to decide which inputs a patch is allowed to change. A patch must
+    not be blamed for altering behaviour on an input the specification already
+    excluded.
+
+    @returns (admissible, reason_if_not). An unevaluable precondition yields
+        ``(False, reason)``: an input that cannot be shown legal is not used as
+        the basis of a proof, nor as evidence against a fix.
+    """
+    if not conditions:
+        return True, None
+    bindings = build_bindings(
+        names, args, include_result=False,
+        receiver_names=receiver_names, receiver_args=receiver_args,
+    )
+    for condition in conditions:
+        outcome = condition.evaluate(bindings)
+        if outcome.verdict is Verdict.FALSE:
+            return False, f"precondition not satisfied: {condition.source}"
+        if outcome.verdict is Verdict.UNEVALUABLE:
+            return False, (
+                f"precondition could not be evaluated: {condition.source} "
+                f"({outcome.reason})"
+            )
+    return True, None
+
+
 def build_bindings(
     parameter_names: tuple[str, ...] | list[str],
     args: list[Any],

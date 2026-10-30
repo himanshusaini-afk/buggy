@@ -45,7 +45,13 @@ from .inspection import (
     find_function,
     find_functions,
 )
-from .specs import Condition, SpecSyntaxError, build_bindings, compile_condition
+from .specs import (
+    Condition,
+    SpecSyntaxError,
+    build_bindings,
+    compile_condition,
+    preconditions_hold,
+)
 from .types import (
     SEVERITY_NORMAL,
     Certificate,
@@ -64,7 +70,7 @@ from .types import (
     Violation,
 )
 
-__all__ = ["Config", "investigate", "investigate_file"]
+__all__ = ["Config", "investigate", "investigate_file", "candidate_calls"]
 
 REPRODUCTION_ATTEMPTS = 3
 REPRODUCTIONS_REQUIRED = 2
@@ -150,35 +156,9 @@ def _compile_spec(spec: FunctionSpec) -> _Spec:
     return out
 
 
-def _preconditions_hold(
-    conditions: list[Condition],
-    args: list[Any],
-    names: tuple[str, ...],
-    receiver_names: tuple[str, ...] = (),
-    receiver_args: tuple[Any, ...] = (),
-) -> tuple[bool, str | None]:
-    """Whether this input is admissible.
-
-    @returns (admissible, reason_if_not). An unevaluable precondition yields
-        ``(False, reason)``: we cannot show the input is legal, so it is not used
-        as the basis of a proof.
-    """
-    if not conditions:
-        return True, None
-    bindings = build_bindings(
-        names, args, include_result=False,
-        receiver_names=receiver_names, receiver_args=receiver_args,
-    )
-    for condition in conditions:
-        outcome = condition.evaluate(bindings)
-        if outcome.verdict is Verdict.FALSE:
-            return False, f"precondition not satisfied: {condition.source}"
-        if outcome.verdict is Verdict.UNEVALUABLE:
-            return False, (
-                f"precondition could not be evaluated: {condition.source} "
-                f"({outcome.reason})"
-            )
-    return True, None
+_preconditions_hold = preconditions_hold
+"""Shared with :mod:`buggy.repair`, which needs the same judgement to decide
+which inputs a patch is allowed to change."""
 
 
 # ─── Verification ────────────────────────────────────────────────────────────
@@ -248,6 +228,22 @@ def _choose_receiver(
         f"{attempts} attempt(s). Last failure: {last}. "
         f"Pass --receiver '{owner.name}(...)' to supply one."
     )
+
+
+def candidate_calls(
+    signature: Signature,
+    init: Signature | None = None,
+    receiver: Receiver | None = None,
+    *,
+    limit: int = MAX_COMBINATIONS,
+    seed: int = 0x8066,
+) -> list[tuple[Receiver | None, list[Any]]]:
+    """The calls an investigation would try, for callers that need the same set.
+
+    Used by :mod:`buggy.repair` to re-run exactly what the search ran, so a
+    patch is judged against the inputs that actually exercised the function.
+    """
+    return _candidate_calls(signature, init, receiver, limit=limit, seed=seed)
 
 
 def _candidate_calls(

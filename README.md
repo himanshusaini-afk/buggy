@@ -31,10 +31,17 @@ execution reuses one worker process instead of spawning an interpreter per
 input. On the seven functions in `examples/expense-api` it proves 4 defects in
 0.3 s where this implementation proves 3 in 494 s.
 
-It is **early**: proving works and is tested, while repair, classification,
-persistence and the MCP server are not written yet. Its README states exactly
-what runs. For repair, patch classification, the Watchlist or Kiro integration,
-use this implementation.
+It is **early**: proving and repair work and are tested, while persistence and
+the MCP server are not written yet. Its README states exactly what runs. For the
+Watchlist, the retrospective, the capability advisor or Kiro integration, use
+this implementation.
+
+Its repair step is worth a look regardless. Rather than scoring patches for
+overfitting, it applies each one and re-runs the code: does it fix the proven
+trigger, does it change anything that worked, and does it handle other inputs of
+the same shape. In this implementation's own recorded runs the classifier
+rejected all 21 candidate patches across both languages, scoring the correct
+`if people == 0: return 0.0` guard at 93% likely-overfit.
 
 ## Quick Start
 

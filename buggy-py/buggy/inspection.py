@@ -283,6 +283,46 @@ def function_source(source: str, info: FunctionInfo) -> str:
     return "\n".join(lines[start:info.end_line])
 
 
+def body_insertion_point(
+    source: str,
+    info: FunctionInfo,
+    filename: str = "<target>",
+) -> tuple[int, str] | None:
+    """Where a guard belongs, and how far to indent it.
+
+    @returns (1-based line to insert *before*, indent string), or None when the
+        function body cannot be located.
+
+    The point is after any docstring, which is where a Python guard goes and
+    what every style guide expects. Taken from the tree rather than guessed from
+    text: a docstring line reading ``BUG: people == 0 raises`` contains ``==``
+    and looks like code to any heuristic.
+    """
+    tree = parse(source, filename)
+
+    target = None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and node.lineno == info.line:
+            target = node
+            break
+    if target is None or not target.body:
+        return None
+
+    first = target.body[0]
+    indent = " " * first.col_offset
+
+    # Skip a leading docstring so the guard lands after it.
+    if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) \
+            and isinstance(first.value.value, str):
+        end = getattr(first, "end_lineno", first.lineno) or first.lineno
+        if len(target.body) == 1:
+            return end + 1, indent
+        return target.body[1].lineno, " " * target.body[1].col_offset
+
+    return first.lineno, indent
+
+
 def non_code_lines(source: str, filename: str = "<target>") -> set[int]:
     """1-based lines holding no executable code: comments and docstrings.
 
