@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from buggy.prove import Config, investigate
-from buggy.types import OracleKind
+from buggy.types import OracleKind, ReceiverKind
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample.py"
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "expense-api" / "src"
@@ -264,11 +264,131 @@ class TestUnevaluableSpecsAreReported(unittest.TestCase):
         self.assertTrue(any("reslt" in w.reason for w in report.warnings))
 
 
-class TestSkipReasons(unittest.TestCase):
-    def test_instance_method_is_skipped_with_a_reason(self):
-        report = investigate(FIXTURE, "Calculator.instance_method", config=FAST)
+class TestInstanceMethods(unittest.TestCase):
+    """Instance methods were the largest coverage gap: 25 of the 81 functions in
+    the stdlib's `statistics` module are instance methods, and in ordinary
+    application code the share is higher still."""
+
+    def test_instance_method_is_investigated(self):
+        report = investigate(FIXTURE, "Picky.per_item", config=FAST)
+        self.assertEqual(report.status, "proven")
+        self.assertEqual(report.certificate.args, [0])
+        self.assertIn("ZeroDivisionError", report.certificate.rule)
+
+    def test_certificate_records_how_the_object_was_built(self):
+        """A certificate the reader cannot re-run is not evidence."""
+        report = investigate(FIXTURE, "Picky.per_item", config=FAST)
+        receiver = report.certificate.receiver
+        self.assertIsNotNone(receiver)
+        self.assertIs(receiver.kind, ReceiverKind.CONSTRUCT)
+        self.assertTrue(receiver.render("Picky").startswith("Picky("))
+
+    def test_probe_finds_arguments_the_constructor_accepts(self):
+        """``Picky`` rejects an empty name and a non-positive size, so the
+        default construction attempt fails and the probe has to keep trying."""
+        report = investigate(FIXTURE, "Picky.per_item", config=FAST)
+        self.assertNotEqual(report.status, "skipped")
+
+    def test_constructor_argument_defects_are_reachable(self):
+        """``Basket.average`` takes no arguments of its own. Its defect is
+        entirely in ``Basket([])``, so searching only method arguments would
+        report it clean."""
+        report = investigate(FIXTURE, "Basket.average", config=FAST)
+        self.assertEqual(report.status, "proven")
+        self.assertIn("ZeroDivisionError", report.certificate.rule)
+        self.assertEqual(report.certificate.receiver.args, ([],))
+
+    def test_preconditions_can_constrain_constructor_arguments(self):
+        """A method's input is the pair (how the object was built, what it was
+        called with), so a condition must be able to speak about both.
+
+        Without this there is no way to say "items is a list", and
+        ``Basket(0).scaled(1)`` is reported as a defect in ``scaled`` when the
+        real problem is a constructor that accepts nonsense.
+        """
+        numeric = ("isinstance({0}, (int, float)) and "
+                   "not isinstance({0}, bool) and math.isfinite({0})")
+        report = investigate(
+            FIXTURE, "Basket.scaled",
+            preconditions=[
+                # `items` is a constructor parameter. Note that
+                # `isinstance(items, list)` alone is not enough: it admits
+                # `[None]`, and `None * 1` raises. Specifying collections in a
+                # dynamically typed language means specifying their elements.
+                "isinstance(items, list) and all("
+                + numeric.format("v") + " for v in items)",
+                numeric.format("factor"),    # a method parameter
+            ],
+            config=FAST,
+        )
+        self.assertNotEqual(report.status, "proven")
+        self.assertGreater(report.executions, 0, "must still execute something")
+
+    def test_unconstrained_constructor_argument_is_still_found(self):
+        """Left unconstrained, the invalid-state failure is reported rather than
+        hidden — it is a real missing-validation defect, just ranked low."""
+        report = investigate(FIXTURE, "Basket.scaled", config=FAST)
+        self.assertEqual(report.status, "proven")
+
+    def test_each_call_gets_a_fresh_object(self):
+        """Sharing one receiver would let state written by an earlier call change
+        a later one, breaking reproducibility and making any stateful method
+        look non-deterministic."""
+        report = investigate(
+            FIXTURE, "Counter.tick",
+            preconditions=["isinstance(step, int) and not isinstance(step, bool)"],
+            config=Config(max_executions=30, timeout=1.0,
+                          determinism_checks=4, determinism_sample=1),
+        )
+        if report.certificate is not None:
+            self.assertIsNot(report.certificate.kind, OracleKind.NONDETERMINISM)
+
+    def test_unconstructible_class_is_skipped_not_blamed(self):
+        """A failure inside ``__init__`` says nothing about the method."""
+        report = investigate(FIXTURE, "AlwaysFails.method", config=FAST)
         self.assertEqual(report.status, "skipped")
-        self.assertIn("receiver", report.note)
+        self.assertIn("could not build", report.note)
+        self.assertIn("--receiver", report.note)
+
+    def test_variadic_init_is_refused_with_a_reason(self):
+        report = investigate(FIXTURE, "OpaqueInit.first", config=FAST)
+        self.assertEqual(report.status, "skipped")
+        self.assertIn("*args", report.note)
+
+    def test_user_supplied_receiver_expression(self):
+        report = investigate(
+            FIXTURE, "OpaqueInit.first",
+            config=Config(max_executions=20, timeout=1.0,
+                          receiver="OpaqueInit()"),
+        )
+        self.assertNotEqual(report.status, "skipped")
+        self.assertEqual(report.status, "proven")
+        self.assertIn("IndexError", report.certificate.rule)
+
+    def test_bad_receiver_expression_is_reported(self):
+        report = investigate(
+            FIXTURE, "Picky.per_item",
+            config=Config(max_executions=20, timeout=1.0,
+                          receiver="Picky('', 0)"),  # __init__ rejects this
+        )
+        self.assertEqual(report.status, "skipped")
+        self.assertIn("--receiver failed", report.note)
+
+    def test_staticmethod_needs_no_receiver(self):
+        report = investigate(FIXTURE, "Calculator.static_divide", config=FAST)
+        self.assertEqual(report.status, "proven")
+        self.assertFalse(
+            report.certificate.receiver is not None
+            and report.certificate.receiver.needed
+        )
+
+    def test_dunder_methods_are_out_of_scope(self):
+        report = investigate(FIXTURE, "Picky.__init__", config=FAST)
+        self.assertEqual(report.status, "skipped")
+        self.assertIn("special method", report.note)
+
+
+class TestSkipReasons(unittest.TestCase):
 
     def test_unknown_function_lists_what_is_available(self):
         report = investigate(FIXTURE, "no_such_function", config=FAST)

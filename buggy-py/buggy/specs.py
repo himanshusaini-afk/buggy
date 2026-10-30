@@ -293,6 +293,8 @@ def build_bindings(
     args: list[Any],
     result: Any = None,
     include_result: bool = False,
+    receiver_names: tuple[str, ...] | list[str] = (),
+    receiver_args: tuple[Any, ...] | list[Any] = (),
 ) -> dict[str, Any]:
     """Bind parameter names to arguments positionally.
 
@@ -300,10 +302,17 @@ def build_bindings(
     always sees exactly the values the function received. ``args`` is also bound
     as a whole, which is the only way to write about a variadic call.
 
-    A name that shadows a safe builtin wins, since it is the user's own
-    parameter; that is checked here rather than left to chance.
+    For an instance method, the **constructor's** parameters are bound too. A
+    method's input is the pair (how the object was built, what it was called
+    with), so a condition must be able to speak about both: ``Basket.average``
+    fails for ``Basket([])`` and the user needs some way to say
+    ``len(items) > 0``. Method parameters take precedence on a name clash, since
+    they are the more immediate subject.
     """
     bindings: dict[str, Any] = {}
+    for name, value in zip(receiver_names, receiver_args):
+        if name.isidentifier():
+            bindings[name] = value
     for name, value in zip(parameter_names, args):
         if name.isidentifier():
             bindings[name] = value

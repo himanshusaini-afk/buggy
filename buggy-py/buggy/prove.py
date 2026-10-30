@@ -37,10 +37,11 @@ from typing import Any
 
 from . import oracles
 from .executor import Executor, ExecutorError
-from .generate import MAX_COMBINATIONS, generate_arguments
+from .generate import MAX_COMBINATIONS, generate_arguments, ordinary_arguments
 from .inspection import (
     SourceSyntaxError,
     describe_unsupported,
+    find_classes,
     find_function,
     find_functions,
 )
@@ -48,10 +49,14 @@ from .specs import Condition, SpecSyntaxError, build_bindings, compile_condition
 from .types import (
     SEVERITY_NORMAL,
     Certificate,
+    ClassInfo,
     ExecResult,
+    FunctionInfo,
     FunctionSpec,
     OracleKind,
     Outcome,
+    Receiver,
+    ReceiverKind,
     Report,
     Signature,
     SpecWarning,
@@ -103,6 +108,14 @@ class Config:
     address_mb: int | None = None
     seed: int = 0x8066
 
+    receiver: str | None = None
+    """An expression that builds the object an instance method is called on,
+    e.g. ``Cart(items=[1, 2])``. Evaluated in the target module. When omitted,
+    one is constructed from the class's own ``__init__`` signature."""
+
+    max_receiver_attempts: int = 12
+    """How many constructions to try before giving up on building a receiver."""
+
 
 # ─── Specification handling ──────────────────────────────────────────────────
 
@@ -141,6 +154,8 @@ def _preconditions_hold(
     conditions: list[Condition],
     args: list[Any],
     names: tuple[str, ...],
+    receiver_names: tuple[str, ...] = (),
+    receiver_args: tuple[Any, ...] = (),
 ) -> tuple[bool, str | None]:
     """Whether this input is admissible.
 
@@ -150,7 +165,10 @@ def _preconditions_hold(
     """
     if not conditions:
         return True, None
-    bindings = build_bindings(names, args, include_result=False)
+    bindings = build_bindings(
+        names, args, include_result=False,
+        receiver_names=receiver_names, receiver_args=receiver_args,
+    )
     for condition in conditions:
         outcome = condition.evaluate(bindings)
         if outcome.verdict is Verdict.FALSE:
@@ -164,6 +182,123 @@ def _preconditions_hold(
 
 
 # ─── Verification ────────────────────────────────────────────────────────────
+
+
+def _choose_receiver(
+    executor: Executor,
+    info: FunctionInfo,
+    classes: dict[str, ClassInfo],
+    config: Config,
+) -> tuple[Receiver | None, str | None]:
+    """Find a way to build the object an instance method is called on.
+
+    Candidates are tried in order of how likely they are to produce a *valid*
+    object, which is the reverse of how arguments are generated elsewhere: the
+    goal here is something to call the method on, not a broken constructor.
+
+    @returns (receiver, reason_if_impossible).
+    """
+    if config.receiver:
+        receiver = Receiver(ReceiverKind.EXPRESSION, source=config.receiver)
+        if not info.needs_receiver:
+            # Supplying one for a plain function is a mistake worth naming
+            # rather than quietly ignoring.
+            return Receiver(), None
+        ok, why = executor.can_construct(info.owner or "", receiver)
+        return (receiver, None) if ok else (None, f"--receiver failed: {why}")
+
+    if not info.needs_receiver:
+        return Receiver(), None
+
+    owner = classes.get(info.owner or "")
+    if owner is None:
+        return None, f"class {info.owner!r} not found"
+
+    candidates: list[tuple[Any, ...]] = []
+    init = owner.init
+    if init is None or not init.callable_parameters:
+        candidates.append(())
+    else:
+        required = [p for p in init.callable_parameters if not p.has_default]
+        if not required:
+            candidates.append(())
+        candidates.append(tuple(ordinary_arguments(init)))
+        for args in generate_arguments(init, limit=config.max_receiver_attempts):
+            candidates.append(tuple(args))
+
+    seen: set[str] = set()
+    last: str | None = None
+    attempts = 0
+    for args in candidates:
+        key = repr(args)
+        if key in seen:
+            continue
+        seen.add(key)
+        attempts += 1
+        if attempts > config.max_receiver_attempts:
+            break
+        receiver = Receiver(ReceiverKind.CONSTRUCT, args=args)
+        ok, why = executor.can_construct(owner.qualified_name, receiver)
+        if ok:
+            return receiver, None
+        last = why
+
+    return None, (
+        f"could not build a {owner.name} to call the method on after "
+        f"{attempts} attempt(s). Last failure: {last}. "
+        f"Pass --receiver '{owner.name}(...)' to supply one."
+    )
+
+
+def _candidate_calls(
+    signature: Signature,
+    init: Signature | None,
+    base: Receiver | None,
+    *,
+    limit: int,
+    seed: int,
+) -> list[tuple[Receiver | None, list[Any]]]:
+    """Every (receiver, arguments) pair to try, most attributable first.
+
+    A method's real input space is the **product of its constructor arguments
+    and its own**. Varying only the latter misses a whole class of defect:
+    ``Cart.average_price()`` takes no arguments at all, and its
+    ZeroDivisionError lives entirely in ``Cart([])``. Searching only method
+    arguments would report it clean.
+
+    The two phases keep blame legible:
+
+    1. a known-good receiver against every generated argument list, so a finding
+       is unambiguously about the method's own arguments;
+    2. generated constructor arguments against ordinary method arguments, which
+       finds defects that depend on the object's state.
+
+    Constructor arguments that fail to build are not charged to the budget; see
+    the ReceiverConstructionFailed branch in :func:`_search`.
+    """
+    method_args = generate_arguments(signature, limit=limit, seed=seed)
+
+    if base is None or not base.needed:
+        return [(base, args) for args in method_args]
+
+    pairs: list[tuple[Receiver | None, list[Any]]] = [
+        (base, args) for args in method_args
+    ]
+
+    if init is not None and init.callable_parameters:
+        ordinary_method = ordinary_arguments(signature)
+        seen = {repr(base.args)}
+        for ctor_args in generate_arguments(init, limit=limit, seed=seed):
+            key = repr(tuple(ctor_args))
+            if key in seen:
+                continue
+            seen.add(key)
+            pairs.append(
+                (Receiver(ReceiverKind.CONSTRUCT, args=tuple(ctor_args)),
+                 list(ordinary_method))
+            )
+
+    return pairs
 
 
 def _same_failure(violation: Violation, result: ExecResult, spec: _Spec,
@@ -194,10 +329,15 @@ def _certify(
     spec: _Spec,
     names: tuple[str, ...],
     config: Config,
+    receiver: Receiver | None = None,
+    init_names: tuple[str, ...] = (),
 ) -> tuple[Certificate | None, str | None]:
     """Run the three pillars. Returns the certificate, or None and a reason."""
     # Pillar 1: admissibility.
-    admissible, why = _preconditions_hold(spec.preconditions, violation.args, names)
+    admissible, why = _preconditions_hold(
+        spec.preconditions, violation.args, names, init_names,
+        tuple(receiver.args) if receiver is not None else (),
+    )
     if not admissible:
         return None, f"not certified — {why}"
     admissible_at = _now()
@@ -206,7 +346,7 @@ def _certify(
     # a single expected outcome: the finding *is* that outcomes disagree.
     if violation.kind is OracleKind.NONDETERMINISM:
         results = executor.call_many(
-            target, violation.args, 5, timeout=config.timeout
+            target, violation.args, 5, timeout=config.timeout, receiver=receiver
         )
         if not oracles.outcomes_differ(results):
             return None, "not certified — the outcome was consistent on re-execution"
@@ -218,20 +358,23 @@ def _certify(
                 kind=violation.kind, admissible_at=admissible_at,
                 sound_at=stamp, reproducible_at=stamp,
                 reproductions=len(results), attempts=len(results),
-                detail=violation.detail,
+                detail=violation.detail, receiver=receiver,
             ),
             None,
         )
 
     # Pillar 2: soundness — observe it again on a fresh execution.
-    rerun = executor.call(target, violation.args, timeout=config.timeout)
+    rerun = executor.call(
+        target, violation.args, timeout=config.timeout, receiver=receiver
+    )
     if not _same_failure(violation, rerun, spec, names):
         return None, "not certified — the failure did not recur on re-execution"
     sound_at = _now()
 
     # Pillar 3: reproducibility — majority of further attempts.
     repeats = executor.call_many(
-        target, violation.args, REPRODUCTION_ATTEMPTS, timeout=config.timeout
+        target, violation.args, REPRODUCTION_ATTEMPTS,
+        timeout=config.timeout, receiver=receiver,
     )
     reproduced = sum(1 for r in repeats if _same_failure(violation, r, spec, names))
     if reproduced < REPRODUCTIONS_REQUIRED:
@@ -247,6 +390,7 @@ def _certify(
             admissible_at=admissible_at, sound_at=sound_at,
             reproducible_at=_now(), reproductions=reproduced,
             attempts=REPRODUCTION_ATTEMPTS, detail=violation.detail,
+            receiver=receiver,
         ),
         None,
     )
@@ -302,7 +446,10 @@ def investigate(
             note=f"function not found. Available: {available}",
         ))
 
-    unsupported = describe_unsupported(info)
+    classes = find_classes(source, str(file_path))
+    unsupported = describe_unsupported(
+        info, classes, receiver_supplied=bool(config.receiver)
+    )
     if unsupported:
         return finish(Report(function=function, file=str(file_path),
                              status="skipped", note=unsupported))
@@ -339,8 +486,21 @@ def investigate(
                       f"{err.exception_type}: {err.message}"),
             ))
 
-        return finish(_search(executor, info.qualified_name, str(file_path),
-                              info.signature, spec, names, config))
+        receiver, why = _choose_receiver(executor, info, classes, config)
+        if receiver is None:
+            # Nothing can be called, so say that rather than investigating a
+            # method that never runs and calling the silence "unconfirmed".
+            return finish(Report(
+                function=function, file=str(file_path), status="skipped",
+                warnings=spec.warnings, note=why,
+            ))
+
+        owner = classes.get(info.owner or "")
+        return finish(_search(
+            executor, info.qualified_name, str(file_path), info.signature,
+            spec, names, config, receiver,
+            init=owner.init if owner is not None else None,
+        ))
     finally:
         if owned:
             executor.close()
@@ -354,36 +514,55 @@ def _search(
     spec: _Spec,
     names: tuple[str, ...],
     config: Config,
+    receiver: Receiver | None = None,
+    init: Signature | None = None,
 ) -> Report:
     """Generate, filter, execute, check, verify."""
     report = Report(function=target, file=file, status="unconfirmed",
-                    warnings=list(spec.warnings))
+                    warnings=list(spec.warnings), receiver=receiver)
+    init_names = init.names if init is not None else ()
 
-    candidates = generate_arguments(
-        signature, limit=max(config.max_executions * 2, 32), seed=config.seed
+    candidates = _candidate_calls(
+        signature, init, receiver,
+        limit=max(config.max_executions * 2, 32), seed=config.seed,
     )
     report.candidates = len(candidates)
 
     unevaluable_posts: dict[str, str] = {}
     best: Violation | None = None
+    best_receiver: Receiver | None = None
     """The most informative low-severity finding seen so far, used only if
     nothing better is found before the budget runs out."""
 
-    for index, args in enumerate(candidates):
+    for index, (call_receiver, args) in enumerate(candidates):
         if report.executions >= config.max_executions:
             break
 
-        admissible, _ = _preconditions_hold(spec.preconditions, args, names)
+        admissible, _ = _preconditions_hold(
+            spec.preconditions, args, names,
+            init_names,
+            tuple(call_receiver.args) if call_receiver is not None else (),
+        )
         if not admissible:
             report.filtered += 1
             continue
 
         report.executions += 1
         try:
-            result = executor.call(target, args, timeout=config.timeout)
+            result = executor.call(
+                target, args, timeout=config.timeout, receiver=call_receiver
+            )
         except ExecutorError:
             # The input could not be handed to the worker. A harness limit, not
             # a defect: skip it rather than report it.
+            report.executions -= 1
+            report.environment_errors += 1
+            continue
+
+        if result.exception_type == "ReceiverConstructionFailed":
+            # The object could not be built with these constructor arguments, so
+            # the method never ran. Nothing was learned, and it must not be
+            # charged to the budget or blamed on the method.
             report.executions -= 1
             report.environment_errors += 1
             continue
@@ -416,7 +595,8 @@ def _search(
         if violation is None and config.determinism_checks > 0 \
                 and index % config.determinism_sample == 0:
             repeats = executor.call_many(
-                target, args, config.determinism_checks, timeout=config.timeout
+                target, args, config.determinism_checks,
+                timeout=config.timeout, receiver=receiver,
             )
             report.executions += len(repeats)
             violation = oracles.check_determinism([result, *repeats], args)
@@ -430,14 +610,16 @@ def _search(
             # Informative enough to report if it is all we find, not informative
             # enough to stop looking. Keep searching for something better.
             if best is None or violation.severity > best.severity:
-                best = violation
+                best, best_receiver = violation, call_receiver
             continue
 
         certificate, why = _certify(
-            executor, target, file, violation, spec, names, config
+            executor, target, file, violation, spec, names, config,
+            call_receiver, init_names,
         )
         if certificate is not None:
             report.certificate = certificate
+            report.receiver = call_receiver
             report.status = "proven"
             if config.stop_at_first:
                 break
@@ -461,10 +643,12 @@ def _search(
     # hand would be the worst of both worlds.
     if report.certificate is None and best is not None:
         certificate, why = _certify(
-            executor, target, file, best, spec, names, config
+            executor, target, file, best, spec, names, config,
+            best_receiver, init_names,
         )
         if certificate is not None:
             report.certificate = certificate
+            report.receiver = best_receiver
             report.status = "proven"
             report.note = best.advice
         elif why:
@@ -496,6 +680,7 @@ def investigate_file(
     file_path = Path(path)
     source = file_path.read_text(encoding="utf-8")
     functions = find_functions(source, str(file_path))
+    classes = find_classes(source, str(file_path))
     specs = specs or {}
 
     reports: list[Report] = []
@@ -503,7 +688,7 @@ def investigate_file(
     try:
         for info in functions:
             entry = specs.get(info.qualified_name) or specs.get(info.name) or {}
-            if describe_unsupported(info) is None and executor is None:
+            if describe_unsupported(info, classes) is None and executor is None:
                 try:
                     executor = Executor(
                         source, filename=str(file_path), python=config.python,

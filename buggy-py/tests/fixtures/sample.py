@@ -88,7 +88,7 @@ class Calculator:
     factor = 2
 
     def instance_method(self, value):
-        """Needs a receiver, so it cannot be called with generated arguments."""
+        """Needs a receiver. BUG: a string value silently repeats it."""
         return value * self.factor
 
     @staticmethod
@@ -117,3 +117,73 @@ def outer(x):
         return y * 2
 
     return inner(x)
+
+
+# ─── Receiver shapes ─────────────────────────────────────────────────────────
+
+class Basket:
+    """The defect lives in the CONSTRUCTOR argument, not the method's own.
+
+    ``average`` takes nothing but ``self``, so searching only method arguments
+    can never reach its ZeroDivisionError.
+    """
+
+    def __init__(self, items):
+        self.items = items
+
+    def average(self):
+        return sum(self.items) / len(self.items)
+
+    def scaled(self, factor):
+        """Clean: no division, and bounded by its inputs."""
+        return [v * factor for v in self.items]
+
+
+class Counter:
+    """Stateful, to check that each call gets a fresh object.
+
+    If one receiver were shared across calls, ``tick(1)`` would return 1, 2,
+    3... and look non-deterministic. With a fresh receiver it always returns 1.
+    """
+
+    def __init__(self):
+        self.total = 0
+
+    def tick(self, step):
+        self.total += step
+        return self.total
+
+
+class Picky:
+    """Rejects some constructor arguments, so the probe has to find good ones."""
+
+    def __init__(self, name, size):
+        if not name:
+            raise ValueError("name is required")
+        if size <= 0:
+            raise ValueError("size must be positive")
+        self.name, self.size = name, size
+
+    def per_item(self, count):
+        """BUG: count == 0 raises ZeroDivisionError."""
+        return self.size / count
+
+
+class AlwaysFails:
+    """Cannot be built at all, so its methods are out of reach."""
+
+    def __init__(self, anything):
+        raise RuntimeError("this class refuses to be constructed")
+
+    def method(self, x):
+        return x
+
+
+class OpaqueInit:
+    """``__init__`` arity is unknowable from the signature."""
+
+    def __init__(self, *args, **kwargs):
+        self.args = args
+
+    def first(self):
+        return self.args[0]

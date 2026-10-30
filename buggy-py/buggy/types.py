@@ -96,6 +96,73 @@ class FunctionInfo:
     """True for instance methods, whose first argument is ``self``."""
     decorators: tuple[str, ...] = ()
     is_property: bool = False
+    owner: str | None = None
+    """Qualified name of the enclosing class, when there is one. Needed to
+    construct a receiver for an instance method."""
+    is_dunder: bool = False
+    """``__init__`` and friends. Their call protocols vary, so they are out of
+    scope rather than guessed at."""
+
+
+@dataclass(frozen=True)
+class ClassInfo:
+    """A class, and what it takes to build one."""
+
+    name: str
+    qualified_name: str
+    line: int
+    init: Signature | None = None
+    """``__init__``'s signature with ``self`` removed, or None when the class
+    declares no ``__init__`` (in which case it constructs with no arguments)."""
+    init_is_variadic: bool = False
+    """True when ``__init__`` accepts only ``*args``/``**kwargs``, so its real
+    arity cannot be read from the signature."""
+    bases: tuple[str, ...] = ()
+
+
+# ─── Receivers ───────────────────────────────────────────────────────────────
+
+
+class ReceiverKind(str, Enum):
+    NONE = "none"
+    """A plain function, staticmethod or classmethod. Nothing to construct."""
+    CONSTRUCT = "construct"
+    """Build the owning class with generated arguments."""
+    EXPRESSION = "expression"
+    """Build it from a user-supplied expression, evaluated in the module."""
+
+
+@dataclass(frozen=True)
+class Receiver:
+    """How to obtain the object an instance method is called on.
+
+    A fresh receiver is built for **every** call. Reusing one would let state
+    mutated by an earlier call leak into a later one, which breaks the
+    reproducibility pillar and makes any stateful method look non-deterministic.
+    The cost is that defects which only appear after repeated calls on the same
+    object are out of reach; that is a deliberate trade for sound results.
+    """
+
+    kind: ReceiverKind = ReceiverKind.NONE
+    args: tuple[Any, ...] = ()
+    source: str | None = None
+    """The expression, when `kind` is EXPRESSION."""
+
+    @property
+    def needed(self) -> bool:
+        return self.kind is not ReceiverKind.NONE
+
+    def render(self, class_name: str) -> str:
+        """How a user would write this construction themselves."""
+        if self.kind is ReceiverKind.EXPRESSION:
+            return self.source or class_name
+        if self.kind is ReceiverKind.CONSTRUCT:
+            inner = ", ".join(repr(a) for a in self.args)
+            return f"{class_name}({inner})"
+        return class_name
+
+    def to_payload(self) -> dict[str, Any]:
+        return {"kind": self.kind.value, "args": list(self.args), "source": self.source}
 
 
 # ─── Specifications ──────────────────────────────────────────────────────────
@@ -262,6 +329,10 @@ class Certificate:
     reproductions: int = 0
     attempts: int = 0
     detail: str | None = None
+    receiver: Receiver | None = None
+    """How the object was built, for an instance method. Recorded because the
+    reproduction is ``Cart([1, 2]).total(0)``, not ``total(0)`` — a certificate
+    the reader cannot re-run is not evidence."""
 
 
 @dataclass
@@ -312,3 +383,5 @@ class Report:
     """Crashes attributed to the harness rather than the function."""
     duration_ms: float = 0.0
     note: str | None = None
+    receiver: Receiver | None = None
+    """How the object was built, for an instance method."""

@@ -22,6 +22,7 @@ from . import __version__
 from .inspection import (
     SourceSyntaxError,
     describe_unsupported,
+    find_classes,
     find_functions,
 )
 from .prove import Config, investigate
@@ -95,8 +96,10 @@ def cmd_functions(args: argparse.Namespace) -> int:
             warn(paint("red", "syntax error: ") + str(exc))
         return 1
 
+    classes = find_classes(source, str(path))
     entries = []
     for info in functions:
+        reason = describe_unsupported(info, classes)
         entries.append({
             "name": info.qualified_name,
             "kind": info.kind,
@@ -108,8 +111,10 @@ def cmd_functions(args: argparse.Namespace) -> int:
                 for p in info.signature.parameters
             ],
             "returns": info.signature.return_annotation,
-            "investigable": describe_unsupported(info) is None,
-            "reason": describe_unsupported(info),
+            "needs_receiver": info.needs_receiver,
+            "owner": info.owner,
+            "investigable": reason is None,
+            "reason": reason,
         })
 
     if args.json:
@@ -137,6 +142,21 @@ def cmd_functions(args: argparse.Namespace) -> int:
     return 0
 
 
+def _reproduction(cert) -> str:
+    """The exact call a reader can paste into a REPL.
+
+    For an instance method this must include the construction, because
+    ``total(0)`` is not something anyone can run; ``Cart([1, 2]).total(0)`` is.
+    A certificate the reader cannot re-run is not evidence.
+    """
+    call_args = ", ".join(repr(a) for a in cert.args)
+    receiver = cert.receiver
+    if receiver is not None and receiver.needed:
+        owner, _, method = cert.function.rpartition(".")
+        return f"{receiver.render(owner or cert.function)}.{method}({call_args})"
+    return f"{cert.function}({call_args})"
+
+
 def _print_report(report: Report, verbose: bool) -> None:
     style = _STATUS_STYLE.get(report.status, "dim")
     print()
@@ -153,6 +173,10 @@ def _print_report(report: Report, verbose: bool) -> None:
     if cert is not None:
         print()
         print(paint("bold", "  Certificate of failure"))
+        if cert.receiver is not None and cert.receiver.needed:
+            owner = cert.function.rpartition(".")[0]
+            print(f"    built on    {paint('cyan', cert.receiver.render(owner))}"
+                  + paint("dim", "  (rebuilt for every call)"))
         print(f"    input       {paint('cyan', repr(cert.args))}")
         print(f"    result      {cert.observed!r}")
         print(f"    broke       {paint('red', cert.rule)}")
@@ -164,8 +188,7 @@ def _print_report(report: Report, verbose: bool) -> None:
                            f"  at {cert.reproducible_at}"))
         print()
         print("  " + paint("dim", "Call it yourself to see it fail:"))
-        call_args = ", ".join(repr(a) for a in cert.args)
-        print(f"    {paint('cyan', f'{cert.function}({call_args})')}")
+        print(f"    {paint('cyan', _reproduction(cert))}")
 
     if report.note:
         print()
@@ -192,6 +215,7 @@ def cmd_investigate(args: argparse.Namespace) -> int:
         timeout=args.timeout,
         determinism_checks=args.determinism,
         python=args.python,
+        receiver=args.receiver,
     )
     report = investigate(
         args.file, args.function,
@@ -218,12 +242,14 @@ def cmd_scan(args: argparse.Namespace) -> int:
     config = Config(
         max_executions=args.budget, timeout=args.timeout,
         determinism_checks=args.determinism, python=args.python,
+        receiver=args.receiver,
     )
 
+    classes = find_classes(source, str(path))
     post = args.post or []
     reports: list[Report] = []
     for info in functions:
-        if describe_unsupported(info) is not None and not args.json:
+        if describe_unsupported(info, classes) is not None and not args.json:
             continue
         reports.append(investigate(
             path, info.qualified_name,
@@ -290,6 +316,10 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--python", default=None, metavar="PATH",
                        help="interpreter to run the target with "
                             "(default: this one, or $BUGGY_PYTHON)")
+        p.add_argument("--receiver", default=None, metavar="EXPR",
+                       help="expression building the object an instance method "
+                            "is called on, e.g. 'Cart(items=[1,2])'. Inferred "
+                            "from __init__ when omitted.")
 
     p_functions = sub.add_parser("functions", help="list functions in a file")
     p_functions.add_argument("file")

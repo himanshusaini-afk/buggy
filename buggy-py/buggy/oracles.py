@@ -64,6 +64,10 @@ ENVIRONMENT_EXCEPTIONS: frozenset[str] = frozenset(
         "FunctionNotResolved",
         "ModuleNotLoaded",
         "LoadCrashed",
+        # The receiver for an instance method could not be built. A failure in
+        # __init__ says nothing about the method under test, so attributing it
+        # to that method would be a false positive.
+        "ReceiverConstructionFailed",
         # The interpreter could not be started.
         "SpawnError",
         "InterpreterDied",

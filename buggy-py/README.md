@@ -89,7 +89,57 @@ Useful flags: `--pre` / `--post` (repeatable), `--budget N` (inputs to execute,
 default 300), `--timeout S` (per call, default 2), `--determinism N`,
 `--json`, `--python PATH`.
 
-A qualified name works for class members: `buggy investigate Cart.total -f cart.py`.
+### Methods
+
+A qualified name reaches a class member: `buggy investigate Cart.total -f cart.py`.
+
+Instance methods need an object to be called on. One is built from the class's
+own `__init__` signature, trying candidate arguments until one constructs, and
+**rebuilt fresh for every call** so state written by an earlier call cannot
+change a later one. The certificate records the construction, because
+`total(0)` is not something you can paste into a REPL and `Cart([1, 2]).total(0)`
+is:
+
+```
+    built on    Cart([])  (rebuilt for every call)
+    input       []
+    broke       must not raise ZeroDivisionError
+
+  Call it yourself to see it fail:
+    Cart([]).average_price()
+```
+
+A method's real input is the pair *(how the object was built, what it was called
+with)*, and both are searched. `Cart.average_price` takes no arguments at all;
+its defect lives entirely in `Cart([])`, so varying only method arguments would
+report it clean.
+
+For the same reason, **preconditions can constrain constructor parameters** by
+name:
+
+```bash
+buggy investigate Basket.scaled -f basket.py \
+  --pre 'isinstance(items, list) and all(isinstance(v, float) for v in items)' \
+  --pre 'math.isfinite(factor)'
+```
+
+Here `items` comes from `Basket.__init__` and `factor` from the method. On a name
+clash the method's parameter wins.
+
+When `__init__` takes only `*args`, or rejects everything tried, pass a receiver
+yourself:
+
+```bash
+buggy investigate Session.retry -f session.py --receiver 'Session("localhost", 8080)'
+```
+
+A failure inside `__init__` is reported as a setup problem, never as a defect in
+the method under test.
+
+Still out of reach, each refused with a reason rather than silently reported
+clean: special methods (`__init__`, `__add__`, …), properties, `async` functions,
+and functions nested inside other functions. On the stdlib's `statistics`
+module, 54 of 81 functions are investigable.
 
 ### Programmatic
 
@@ -123,9 +173,20 @@ observed failure, and it is worth being precise about what that buys you:
 - the failure was **observed again** in a fresh process (soundness)
 - it **recurred** in at least 2 of 3 further attempts (reproducibility)
 
-So a proven finding is a true positive you can reproduce by hand. `unconfirmed`
-means no failing input was found within the budget. It is **not** a proof of
-safety, and the tool says so every time it reports one.
+So a proven finding is a true positive you can reproduce by hand. The other
+statuses are kept distinct on purpose:
+
+| status | meaning |
+|---|---|
+| `proven` | a failing input survived all three pillars |
+| `unconfirmed` | the function ran and nothing failed. **Not** a proof of safety |
+| `no_valid_input` | the preconditions rejected every candidate, so the function never ran. Nothing was learned |
+| `skipped` | it could not be analysed or called at all; the reason is given |
+
+`no_valid_input` exists because collapsing it into `unconfirmed` would present
+an absence of evidence as evidence of absence. It was found by running this
+against the stdlib: `statistics.fmean` under a reasonable precondition executed
+zero inputs and still claimed nothing was wrong.
 
 ## What is checked
 
@@ -208,6 +269,9 @@ Wired into the live pipeline and tested:
 - `ast`-based function discovery and signature recovery, including qualified
   names for class members, positional-only and keyword-only parameters,
   variadics excluded from arity, and `self`/`cls` correctly not counted
+- instance methods, with a receiver constructed from `__init__`, rebuilt per
+  call, overridable with `--receiver`, and recorded in the certificate;
+  constructor arguments are searched and can be constrained by preconditions
 - the Python specification language, with a restricted evaluator and the
   three-way verdict (holds / broken / cannot be evaluated)
 - the persistent worker: reused process, protocol isolated from the target's
@@ -231,9 +295,12 @@ Not written yet, and not implied anywhere in the output:
 - **persistence** — nothing is written to disk. No graph database, no watchlist,
   no retrospective, no capability advisor.
 - **MCP server** — not started.
-- **instance methods** — refused with a reason, because calling one needs a
-  constructed receiver. `staticmethod` and `classmethod` work.
 - **async functions** — refused with a reason; the worker has no event loop.
+- **special methods** — `__init__`, `__add__` and the rest are refused; their
+  calling conventions vary too much to guess at.
+- **defects that need several calls on one object** — a receiver is rebuilt for
+  every call, which is what makes reproducibility sound, but it means a leak or
+  a corruption that only appears on the third call is invisible.
 - **a hard memory cap** — requested and *reported*, not assumed. `RLIMIT_AS`
   cannot be lowered on macOS (`setrlimit` raises), so `Executor.limits` tells
   you what the OS actually accepted rather than claiming a limit that is not
@@ -251,7 +318,7 @@ python3 -m unittest discover -s tests -t .    # no installs needed
 pytest
 ```
 
-104 tests, all passing, about 10 seconds. `tests/test_prove.py` includes the
+122 tests, all passing, about 11 seconds. `tests/test_prove.py` includes the
 parity baseline against the recorded TypeScript run and is skipped if the
 example sources are absent.
 

@@ -24,7 +24,12 @@ from typing import Any
 
 from .types import ParamKind, Signature
 
-__all__ = ["values_for_annotation", "generate_arguments", "MAX_COMBINATIONS"]
+__all__ = [
+    "values_for_annotation",
+    "generate_arguments",
+    "ordinary_arguments",
+    "MAX_COMBINATIONS",
+]
 
 MAX_COMBINATIONS = 300
 """Ceiling on generated argument lists for one function."""
@@ -421,24 +426,65 @@ class _Collector:
         return len(self.combos) >= self.limit
 
 
-def _first_ordinary(pool: list[Any]) -> Any:
-    """The first value in `pool` that is not itself an edge case.
+def ordinary_arguments(signature: Signature) -> list[Any]:
+    """One argument list of unremarkable values.
 
-    Used as the background for one-hot generation, so that a fault can be
-    attributed to the one parameter holding an edge value.
+    The opposite of what the rest of this module is for. Used to build the
+    *receiver* for an instance method, where the goal is a valid object rather
+    than a broken one: constructing ``Cart`` with ``0`` for its items is a good
+    way to find a constructor bug and a bad way to get something to call
+    ``total`` on.
     """
-    for value in pool:
-        if value is None or value is True or value is False:
-            continue
-        if isinstance(value, float):
-            if value != value or value in (float("inf"), float("-inf")) or value == 0:
-                continue
-        if isinstance(value, int) and value == 0:
-            continue
-        if isinstance(value, (str, list, dict, set, tuple)) and len(value) == 0:
-            continue
-        return value
-    return pool[0] if pool else None
+    return [
+        _first_ordinary(values_for_annotation(p.annotation))
+        for p in signature.callable_parameters
+    ]
+
+
+def _is_unremarkable(value: Any) -> bool:
+    """Whether `value` is free of the properties that break functions."""
+    if value is None or value is True or value is False:
+        return False
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")) or value == 0:
+            return False
+        return True
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, (str, list, dict, set, tuple)):
+        return len(value) > 0
+    return True
+
+
+def _first_ordinary(pool: list[Any]) -> Any:
+    """The least remarkable value in `pool`.
+
+    Used as the one-hot background, so a fault can be attributed to the single
+    parameter holding an edge value, and to build receivers, where the goal is a
+    working object.
+
+    **A scalar is preferred over a collection**, because most parameters are
+    scalars and a wrongly-typed background value poisons every result that uses
+    it. Ranking populated collections above plain numbers in the mixed corpus
+    made this return ``[1, 2, 3]``, so ``NeedsConfig(host, port, retries)`` was
+    built with a list for every field and ``retries / attempt`` reported
+    ``TypeError: unsupported operand type(s) for /: 'list' and 'int'`` instead of
+    the ZeroDivisionError that is the actual defect.
+
+    The preference only applies when the pool offers a scalar at all, so a
+    parameter whose corpus is entirely collections still gets a collection.
+    """
+    unremarkable = [v for v in pool if _is_unremarkable(v)]
+    if not unremarkable:
+        return pool[0] if pool else None
+
+    for value in unremarkable:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return value
+    for value in unremarkable:
+        if isinstance(value, str):
+            return value
+    return unremarkable[0]
 
 
 def _product(pools: list[list[Any]], *, cap: int) -> list[list[Any]]:

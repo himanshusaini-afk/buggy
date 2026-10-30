@@ -41,7 +41,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from .types import ExecResult, Outcome
+from .types import ExecResult, Outcome, Receiver
 
 __all__ = ["Executor", "ExecutorError"]
 
@@ -336,6 +336,31 @@ class Executor:
 
     # ─── Public surface ──────────────────────────────────────────────────────
 
+    def can_construct(
+        self,
+        class_name: str,
+        receiver: Receiver,
+        *,
+        timeout: float | None = None,
+    ) -> tuple[bool, str | None]:
+        """Whether this receiver builds successfully.
+
+        @returns (ok, reason_if_not).
+        """
+        if self._load_error is not None:
+            return False, self._load_error.message
+        reply = self._request(
+            {"op": "construct", "class": class_name,
+             "receiver": receiver.to_payload()},
+            timeout if timeout is not None else self._timeout,
+        )
+        if reply is None:
+            self._restart()
+            return False, "building the object killed or hung the interpreter"
+        if reply.get("ok"):
+            return True, None
+        return False, reply.get("message")
+
     @property
     def limits(self) -> dict[str, Any]:
         """What the OS actually accepted, keyed by rlimit name.
@@ -360,18 +385,26 @@ class Executor:
         args: list[Any],
         *,
         timeout: float | None = None,
+        receiver: Receiver | None = None,
     ) -> ExecResult:
         """Call `name` with positional `args` and describe what happened.
 
         Never raises for anything the target does; a crash, a hang and a clean
         return are all ordinary results.
+
+        @param receiver: for an instance method, how to build the object to call
+            it on. A fresh one is built per call, inside the worker.
         """
         if self._load_error is not None:
             return self._load_error
 
         budget = timeout if timeout is not None else self._timeout
+        payload: dict[str, Any] = {"op": "call", "name": name, "args": args}
+        if receiver is not None and receiver.needed:
+            payload["receiver"] = receiver.to_payload()
+
         started = time.perf_counter()
-        reply = self._request({"op": "call", "name": name, "args": args}, budget)
+        reply = self._request(payload, budget)
         elapsed = (time.perf_counter() - started) * 1000
 
         if reply is None:
@@ -427,6 +460,10 @@ class Executor:
         times: int,
         *,
         timeout: float | None = None,
+        receiver: Receiver | None = None,
     ) -> list[ExecResult]:
         """Call the same input repeatedly, for determinism and reproducibility."""
-        return [self.call(name, args, timeout=timeout) for _ in range(times)]
+        return [
+            self.call(name, args, timeout=timeout, receiver=receiver)
+            for _ in range(times)
+        ]

@@ -27,14 +27,16 @@ from __future__ import annotations
 import ast
 from dataclasses import replace
 
-from .types import FunctionInfo, Parameter, ParamKind, Signature
+from .types import ClassInfo, FunctionInfo, Parameter, ParamKind, Signature
 
 __all__ = [
     "find_functions",
     "find_function",
+    "find_classes",
     "function_source",
     "non_code_lines",
     "parse",
+    "describe_unsupported",
     "SourceSyntaxError",
 ]
 
@@ -139,6 +141,48 @@ def _signature(
 # ─── Discovery ───────────────────────────────────────────────────────────────
 
 
+def find_classes(source: str, filename: str = "<target>") -> dict[str, ClassInfo]:
+    """Every class in the file, keyed by qualified name, with its constructor.
+
+    The constructor signature is what makes instance methods reachable: to call
+    ``Cart.total`` something has to build a ``Cart`` first.
+    """
+    tree = parse(source, filename)
+    classes: dict[str, ClassInfo] = {}
+
+    def visit(node: ast.AST, stack: tuple[str, ...]) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.ClassDef):
+                qualified = ".".join(stack + (child.name,))
+                init = None
+                variadic_only = False
+                for member in child.body:
+                    if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                            and member.name == "__init__":
+                        init = _signature(member, drop_receiver=True)
+                        variadic_only = (
+                            not init.callable_parameters
+                            and any(p.is_variadic for p in init.parameters)
+                        )
+                        break
+                bases = tuple(
+                    ast.unparse(b) for b in child.bases
+                    if isinstance(b, (ast.Name, ast.Attribute))
+                )
+                classes[qualified] = ClassInfo(
+                    name=child.name, qualified_name=qualified, line=child.lineno,
+                    init=init, init_is_variadic=variadic_only, bases=bases,
+                )
+                visit(child, stack + (child.name,))
+            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue  # classes inside functions are not reachable by name
+            else:
+                visit(child, stack)
+
+    visit(tree, ())
+    return classes
+
+
 def find_functions(source: str, filename: str = "<target>") -> list[FunctionInfo]:
     """Every function and method in the file, in source order.
 
@@ -188,6 +232,10 @@ def find_functions(source: str, filename: str = "<target>") -> list[FunctionInfo
                         needs_receiver=is_method and not (is_static or is_class_method),
                         decorators=decorators,
                         is_property=is_property,
+                        owner=".".join(class_stack) if class_stack else None,
+                        is_dunder=(
+                            child.name.startswith("__") and child.name.endswith("__")
+                        ),
                     )
                 )
                 visit(child, class_stack, True)
@@ -270,27 +318,52 @@ def non_code_lines(source: str, filename: str = "<target>") -> set[int]:
     return lines
 
 
-def describe_unsupported(info: FunctionInfo) -> str | None:
-    """Why this function cannot be investigated yet, or None if it can.
+def describe_unsupported(
+    info: FunctionInfo,
+    classes: dict[str, ClassInfo] | None = None,
+    receiver_supplied: bool = False,
+) -> str | None:
+    """Why this function cannot be investigated, or None if it can.
 
     Said plainly and up front. The alternative is investigating something that
     cannot be called, finding nothing, and reporting "clean" — which reads as
     evidence of safety and is the most damaging thing this tool can do.
+
+    @param classes: the file's classes, needed to judge whether an instance
+        method's receiver can be constructed. Omitting it makes every instance
+        method unsupported, which is the safe default for callers that only
+        want a quick verdict.
+    @param receiver_supplied: the caller passed an explicit receiver expression,
+        which overrides every objection about constructing one.
     """
     if info.is_nested:
         return (
             "defined inside another function, so it is not reachable by name "
             "after the module loads"
         )
-    if info.needs_receiver:
+    if info.is_dunder:
         return (
-            "instance method: calling it needs a constructed receiver, which is "
-            "not supported yet (staticmethod and classmethod are)"
+            f"{info.name} is a special method; their calling conventions vary "
+            "and are out of scope"
         )
     if info.kind.startswith("async"):
         return "async function: not supported yet (needs an event loop in the worker)"
     if info.is_property:
         return "property accessor: not callable with generated arguments"
+
+    if info.needs_receiver and not receiver_supplied:
+        if classes is None:
+            return "instance method: a receiver is needed to call it"
+        owner = classes.get(info.owner or "")
+        if owner is None:
+            return f"instance method whose class {info.owner!r} could not be found"
+        if owner.init_is_variadic:
+            return (
+                f"instance method: {owner.name}.__init__ takes only *args/**kwargs, "
+                "so a receiver cannot be constructed from its signature "
+                "(pass --receiver to supply one)"
+            )
+
     if not info.signature.callable_parameters and any(
         p.kind is ParamKind.VAR_POSITIONAL for p in info.signature.parameters
     ):

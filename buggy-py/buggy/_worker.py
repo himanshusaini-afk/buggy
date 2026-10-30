@@ -114,43 +114,89 @@ def _encode(value: Any) -> tuple[Any, str]:
         return repr(value), "coerced"
 
 
-def _resolve(namespace: dict, dotted: str) -> tuple[Any, str | None]:
-    """Resolve a possibly dotted name to a callable.
+class ReceiverError(Exception):
+    """The object an instance method needs could not be built.
 
-    Supports module-level functions and ``Class.staticmethod``. An instance
-    method that needs ``self`` is refused with a reason rather than called with
-    a fabricated receiver, which would produce a TypeError indistinguishable
-    from a real defect.
+    Carried as its own exception type so the parent can classify it as a setup
+    problem. A failure inside ``__init__`` says nothing about the method under
+    test, and reporting it as that method's defect would be a false positive.
     """
+
+
+def _resolve_attr(namespace: dict, dotted: str) -> tuple[Any, str | None]:
+    """Walk a dotted name, so nested classes like ``Outer.Inner`` resolve."""
     parts = dotted.split(".")
     current: Any = namespace.get(parts[0], None)
     if current is None:
         return None, f"name not found in module: {parts[0]}"
+    for part in parts[1:]:
+        current = getattr(current, part, None)
+        if current is None:
+            return None, f"attribute not found: {part}"
+    return current, None
+
+
+def _resolve(namespace: dict, dotted: str) -> tuple[Any, Any, str | None]:
+    """Resolve a possibly dotted name.
+
+    @returns (target, owner_class, problem). `owner_class` is set only when the
+        target is an instance method, in which case the caller must build a
+        receiver before calling it. `target` is then the *unbound* function.
+    """
+    parts = dotted.split(".")
+    current: Any = namespace.get(parts[0], None)
+    if current is None:
+        return None, None, f"name not found in module: {parts[0]}"
 
     owner: Any = None
     for part in parts[1:]:
         owner = current
         current = getattr(current, part, None)
         if current is None:
-            return None, f"attribute not found: {part}"
+            return None, None, f"attribute not found: {part}"
 
     if not callable(current):
-        return None, f"{dotted} is not callable"
+        return None, None, f"{dotted} is not callable"
 
     if owner is not None and isinstance(owner, type):
         raw = owner.__dict__.get(parts[-1])
-        if isinstance(raw, staticmethod):
-            return current, None
-        if isinstance(raw, classmethod):
-            return current, None
-        # A plain function on a class is an instance method; calling it needs a
-        # receiver we have no safe way to construct.
-        return None, (
-            f"{dotted} is an instance method; instance methods are not yet "
-            "supported (needs a constructed receiver)"
-        )
+        if isinstance(raw, (staticmethod, classmethod)):
+            return current, None, None
+        # A plain function on a class is an instance method. Hand back the class
+        # so a receiver can be constructed for it.
+        return current, owner, None
 
-    return current, None
+    return current, None, None
+
+
+def _build_receiver(namespace: dict, owner: Any, spec: dict | None) -> Any:
+    """Construct the object an instance method will be called on.
+
+    Built fresh on every call. Sharing one instance across calls would let state
+    written by an earlier call change the outcome of a later one, which breaks
+    reproducibility and makes any stateful method look non-deterministic.
+
+    @raises ReceiverError: construction failed, which is a setup problem.
+    """
+    kind = (spec or {}).get("kind", "construct")
+
+    if kind == "expression":
+        source = (spec or {}).get("source") or ""
+        try:
+            return eval(source, dict(namespace))  # noqa: S307 - user-supplied, by request
+        except BaseException as exc:  # noqa: BLE001
+            raise ReceiverError(
+                f"--receiver expression failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+    args = (spec or {}).get("args") or []
+    try:
+        return owner(*args)
+    except BaseException as exc:  # noqa: BLE001
+        rendered = ", ".join(repr(a) for a in args)
+        raise ReceiverError(
+            f"{owner.__name__}({rendered}) failed: {type(exc).__name__}: {exc}"
+        ) from exc
 
 
 def main() -> int:
@@ -214,6 +260,25 @@ def main() -> int:
                     "traceback": traceback.format_exc(limit=20),
                 })
 
+        elif op == "construct":
+            # A dedicated probe, so the parent can find a constructor that works
+            # before it starts investigating. Doing this through `call` would
+            # confuse "the class could not be built" with "the method failed".
+            if not loaded:
+                emit({"event": "constructed", "ok": False,
+                      "message": "no target module has been loaded"})
+                continue
+            owner, problem = _resolve_attr(namespace, request["class"])
+            if problem is not None:
+                emit({"event": "constructed", "ok": False, "message": problem})
+                continue
+            try:
+                instance = _build_receiver(namespace, owner, request.get("receiver"))
+                emit({"event": "constructed", "ok": True,
+                      "type": type(instance).__name__})
+            except ReceiverError as exc:
+                emit({"event": "constructed", "ok": False, "message": str(exc)})
+
         elif op == "call":
             if not loaded:
                 emit({"event": "result", "outcome": "raised",
@@ -221,7 +286,7 @@ def main() -> int:
                       "message": "no target module has been loaded"})
                 continue
 
-            fn, problem = _resolve(namespace, request["name"])
+            fn, owner, problem = _resolve(namespace, request["name"])
             if problem is not None:
                 emit({"event": "result", "outcome": "raised",
                       "exception_type": "FunctionNotResolved", "message": problem})
@@ -230,6 +295,17 @@ def main() -> int:
             call_args = request.get("args") or []
             if not isinstance(call_args, list):
                 call_args = [call_args]
+
+            receiver_spec = request.get("receiver")
+            if owner is not None or (receiver_spec or {}).get("kind") == "expression":
+                try:
+                    receiver = _build_receiver(namespace, owner, receiver_spec)
+                except ReceiverError as exc:
+                    emit({"event": "result", "outcome": "raised",
+                          "exception_type": "ReceiverConstructionFailed",
+                          "message": str(exc)})
+                    continue
+                call_args = [receiver, *call_args]
 
             try:
                 value = fn(*call_args)
