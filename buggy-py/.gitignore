@@ -1,0 +1,24 @@
+# Kept local to this package rather than added to the root .gitignore, so the
+# directory stays self-contained if it is ever split into its own repository.
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Packaging and editable-install metadata
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Environments
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
