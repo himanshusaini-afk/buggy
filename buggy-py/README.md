@@ -8,7 +8,7 @@ breaks it.
 $ buggy investigate budget_usage -f budget.py --post 'math.isfinite(result)'
 
   budget_usage  (budget.py)
-  ──────────────────────────────────────────────────────────────────────
+  ----------------------------------------------------------------------
   status      proven
 
   Certificate of failure
@@ -27,7 +27,7 @@ third of it that runs, for reasons set out in [Why a rewrite](#why-a-rewrite).
 
 **Status: early.** The prove half works end to end and is tested. Repair,
 classification, persistence and the MCP server are not written yet. See
-[What exists today](#what-exists-today) — that section is the project's
+[What exists today](#what-exists-today) - that section is the project's
 credibility and is kept honest.
 
 ## Install
@@ -54,7 +54,7 @@ a new Python release without waiting for anyone's wheels.
 
 Conditions are Python expressions. Your parameter names are in scope, and
 postconditions also see `result`. The `math` module and the common builtins
-(`len`, `abs`, `min`, `max`, `sum`, `all`, `any`, `isinstance`, `sorted`, …) are
+(`len`, `abs`, `min`, `max`, `sum`, `all`, `any`, `isinstance`, `sorted`, ...) are
 available.
 
 ```bash
@@ -67,8 +67,8 @@ buggy investigate apply_discount -f pricing.py \
 A condition that cannot be evaluated is **reported, never skipped silently**:
 
 ```
-  ⚠ postcondition not checked: !isNaN(result)
-      not a Python expression (invalid syntax) — looks like JavaScript:
+  ! postcondition not checked: !isNaN(result)
+      not a Python expression (invalid syntax) - looks like JavaScript:
       use 'not x' instead of !x
 ```
 
@@ -138,7 +138,7 @@ A failure inside `__init__` is reported as a setup problem, never as a defect in
 the method under test.
 
 Still out of reach, each refused with a reason rather than silently reported
-clean: special methods (`__init__`, `__add__`, …), properties, `async` functions,
+clean: special methods (`__init__`, `__add__`, ...), properties, `async` functions,
 and functions nested inside other functions. On the stdlib's `statistics`
 module, 54 of 81 functions are investigable.
 
@@ -169,7 +169,7 @@ for warning in report.warnings:       # specifications that did not run
 `buggy repair` proposes fixes for a proven failure and then **tests** each one.
 
 ```
-  ✓ VERIFIED  return 0.0 when budget == 0
+  VERIFIED  return 0.0 when budget == 0
       guards the proven trigger (budget zero)
       fixes the trigger, 37 working inputs unchanged, 2/2 similar inputs also fixed
             BUG: `budget == 0` raises ZeroDivisionError.
@@ -198,15 +198,15 @@ affordable because a call costs ~0.015 ms:
    original, and must be handled too.
 
 Question 4 is the honest overfitting check. A patch that special-cases the one
-input that caught it passes 1–3 and fails here, on evidence rather than on a
+input that caught it passes 1-3 and fails here, on evidence rather than on a
 coefficient. The verdicts are `verified`, `overfit` and `rejected`, each shown
 with the reason:
 
 ```
-  ✗ REJECTED  always return 0.0
+  REJECTED  always return 0.0
       changes behaviour on [5, 2]: was ok:2.5, now ok:0.0 (37 of 38 inputs affected)
 
-  ~ OVERFIT   special-case exactly the triggering input
+  OVERFIT   special-case exactly the triggering input
       only handles the exact input that caught it (0 of 4 similar inputs fixed)
 ```
 
@@ -247,18 +247,18 @@ zero inputs and still claimed nothing was wrong.
 Five oracles, in this order. Your own postconditions are checked before the
 built-in numeric ones, so a broken rule is reported in your words.
 
-1. **timeout** — the call did not finish
-2. **crash** — it raised, and the exception is the function's fault
-3. **postcondition** — it returned a value you said was impossible
-4. **non-finite** — it returned NaN or an infinity *from finite arguments*
-5. **nondeterminism** — the same input gave different answers (`--determinism N`)
+1. **timeout** - the call did not finish
+2. **crash** - it raised, and the exception is the function's fault
+3. **postcondition** - it returned a value you said was impossible
+4. **non-finite** - it returned NaN or an infinity *from finite arguments*
+5. **nondeterminism** - the same input gave different answers (`--determinism N`)
 
 Two rankings keep the signal usable, because the easiest failures to trigger are
 usually the least interesting:
 
-**Propagation is not a defect.** `monthly(nan) → nan` is IEEE 754 working, not a
+**Propagation is not a defect.** `monthly(nan) -> nan` is IEEE 754 working, not a
 bug. A non-finite result is only reported when the arguments were all finite, so
-`ratio(0, 0) → nan` is a finding and `monthly(nan)` is not. Without this, every
+`ratio(0, 0) -> nan` is a finding and `monthly(nan)` is not. Without this, every
 unguarded arithmetic function in a codebase gets flagged the moment the fuzzer
 tries NaN.
 
@@ -278,7 +278,7 @@ worse than "it has no Python support".
 **Specifications were evaluated as JavaScript, whatever the target language.**
 `spec-conditions.ts` compiled conditions with `new Function`, and all three call
 sites caught the failure and continued. So a Python condition raised a JavaScript
-`SyntaxError`, was swallowed, and the investigation reported "no bug found" —
+`SyntaxError`, was swallowed, and the investigation reported "no bug found" -
 indistinguishable from genuine safety. The parent repo's own example runner
 documents the workaround: *"Both are JavaScript expressions even for Python
 targets."* Here, conditions are Python and an unevaluable one is a warning.
@@ -341,16 +341,16 @@ Wired into the live pipeline and tested:
 
 Not written yet, and not implied anywhere in the output:
 
-- **persistence** — nothing is written to disk. No graph database, no watchlist,
+- **persistence** - nothing is written to disk. No graph database, no watchlist,
   no retrospective, no capability advisor.
-- **MCP server** — not started.
-- **async functions** — refused with a reason; the worker has no event loop.
-- **special methods** — `__init__`, `__add__` and the rest are refused; their
+- **MCP server** - not started.
+- **async functions** - refused with a reason; the worker has no event loop.
+- **special methods** - `__init__`, `__add__` and the rest are refused; their
   calling conventions vary too much to guess at.
-- **defects that need several calls on one object** — a receiver is rebuilt for
+- **defects that need several calls on one object** - a receiver is rebuilt for
   every call, which is what makes reproducibility sound, but it means a leak or
   a corruption that only appears on the third call is invisible.
-- **a hard memory cap** — requested and *reported*, not assumed. `RLIMIT_AS`
+- **a hard memory cap** - requested and *reported*, not assumed. `RLIMIT_AS`
   cannot be lowered on macOS (`setrlimit` raises), so `Executor.limits` tells
   you what the OS actually accepted rather than claiming a limit that is not
   there. `RLIMIT_CPU` does work, and is what stops a runaway loop.

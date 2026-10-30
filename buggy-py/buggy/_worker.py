@@ -1,30 +1,20 @@
 """The worker process. Loads a target module once, then calls it repeatedly.
 
-Run as a standalone script, not imported::
+Run as a script, not imported:
 
     python3 -m buggy._worker [--cpu-seconds N] [--fsize-mb N]
 
-It speaks newline-delimited JSON on stdin/stdout. One worker serves many calls,
-which is the whole point: the TypeScript implementation wrote four temp files
-and spawned a fresh interpreter for *every* input, costing ~35 ms per call
-locally and ~900 ms on the machine that produced the committed example logs.
-Loading the module once and keeping the process alive costs ~0.09 ms per call.
+Speaks newline-delimited JSON on stdin/stdout. Two protections live here rather
+than in the parent:
 
-Two protections are built in here rather than in the parent.
-
-**The target's output cannot corrupt the protocol.** At startup, fd 1 is
-duplicated for our private use and the original is pointed at /dev/null. A
-``print`` in the target, or a C extension writing straight to fd 1, goes
-nowhere. The parent therefore never has to distinguish protocol output from
-target chatter.
-
-**Resource limits are self-imposed.** The worker lowers its own rlimits before
-loading anything, so no ``preexec_fn`` is needed in the parent (which is unsafe
-in a threaded process). ``RLIMIT_CPU`` is the important one: it kills runaway
-loops by signal, which a wall-clock timeout in the parent cannot do reliably
-when the child is wedged in C code.
-
-@module buggy._worker
+- The target's output cannot corrupt the protocol. At startup fd 1 is
+  duplicated for our private use and the original pointed at /dev/null, so a
+  `print` in the target, or a C extension writing straight to fd 1, goes
+  nowhere.
+- Resource limits are self-imposed, before anything is loaded, so the parent
+  needs no `preexec_fn` (unsafe in a threaded process). RLIMIT_CPU matters
+  most: it kills runaway loops by signal, which a wall-clock timeout cannot do
+  reliably when the child is wedged in C code.
 """
 
 from __future__ import annotations

@@ -29,7 +29,7 @@ from .prove import Config, investigate
 from .repair import propose
 from .types import Report
 
-# ─── Presentation ────────────────────────────────────────────────────────────
+# --- Presentation ---
 
 _COLOR = sys.stdout.isatty() and not os.environ.get("NO_COLOR") \
     and os.environ.get("TERM") != "dumb"
@@ -77,7 +77,7 @@ def _dump(payload: Any) -> None:
     print(json.dumps(_encode(payload), indent=2, default=repr, allow_nan=True))
 
 
-# ─── Commands ────────────────────────────────────────────────────────────────
+# --- Commands ---
 
 
 def cmd_functions(args: argparse.Namespace) -> int:
@@ -128,13 +128,13 @@ def cmd_functions(args: argparse.Namespace) -> int:
 
     print()
     print(paint("bold", f"  {len(entries)} function(s) in {path}"))
-    print(paint("dim", "  " + "─" * 70))
+    print(paint("dim", "  " + "-" * 70))
     for entry in entries:
         params = ", ".join(
             p["name"] + (f": {p['annotation']}" if p["annotation"] else "")
             for p in entry["parameters"]
         )
-        mark = paint("green", "●") if entry["investigable"] else paint("dim", "○")
+        mark = paint("green", "*") if entry["investigable"] else paint("dim", "-")
         print(f"  {mark} {paint('cyan', entry['name'])}({params})"
               + paint("dim", f"  L{entry['line']}"))
         if entry["reason"]:
@@ -162,11 +162,11 @@ def _print_report(report: Report, verbose: bool) -> None:
     style = _STATUS_STYLE.get(report.status, "dim")
     print()
     print(paint("bold", f"  {report.function}") + paint("dim", f"  ({report.file})"))
-    print(paint("dim", "  " + "─" * 70))
+    print(paint("dim", "  " + "-" * 70))
     print(f"  status      {paint(style, report.status)}")
 
     for w in report.warnings:
-        print("  " + paint("yellow", "⚠ ") +
+        print("  " + paint("yellow", "! ") +
               f"{w.role} not checked: {paint('cyan', w.condition)}")
         print(paint("dim", f"      {w.reason}"))
 
@@ -205,7 +205,7 @@ def _print_report(report: Report, verbose: bool) -> None:
         print(paint("dim", "  'unconfirmed' means no failing input was found "
                            "within budget. It is not a proof of safety."))
     elif report.status == "no_valid_input":
-        print(paint("yellow", "  the function was never called — this result "
+        print(paint("yellow", "  the function was never called - this result "
                               "says nothing about it."))
     print()
 
@@ -232,7 +232,6 @@ def cmd_investigate(args: argparse.Namespace) -> int:
 
 
 _VERDICT_STYLE = {"verified": "green", "overfit": "yellow", "rejected": "red"}
-_VERDICT_MARK = {"verified": "✓", "overfit": "~", "rejected": "✗"}
 
 
 def cmd_repair(args: argparse.Namespace) -> int:
@@ -282,7 +281,7 @@ def cmd_repair(args: argparse.Namespace) -> int:
     source = Path(args.file).read_text(encoding="utf-8")
 
     print(paint("bold", f"  Candidate fixes ({len(result.candidates)})"))
-    print(paint("dim", "  " + "─" * 70))
+    print(paint("dim", "  " + "-" * 70))
     if not result.candidates:
         print("  none: the trigger did not suggest a guard.")
         print()
@@ -290,9 +289,10 @@ def cmd_repair(args: argparse.Namespace) -> int:
 
     for patch, evidence in result.candidates:
         style = _VERDICT_STYLE.get(evidence.verdict, "dim")
-        mark = _VERDICT_MARK.get(evidence.verdict, "?")
-        print(f"  {paint(style, mark)} {paint(style, evidence.verdict.upper())}"
-              f"  {patch.summary}")
+        # The verdict word carries the meaning; a symbol beside it would only
+        # repeat itself ("ok VERIFIED").
+        label = f"{evidence.verdict.upper():<8}"
+        print(f"  {paint(style, label)}  {patch.summary}")
         print(paint("dim", f"      {patch.rationale}"))
         print(paint("dim", f"      {evidence.reason}"))
         if args.verbose or evidence.verdict == "verified":
@@ -301,7 +301,7 @@ def cmd_repair(args: argparse.Namespace) -> int:
                 print(f"      {paint(colour, line)}")
         print()
 
-    print(paint("dim", "  " + "─" * 70))
+    print(paint("dim", "  " + "-" * 70))
     print("  Nothing was written to your file. Apply a fix yourself, or review "
           "the diff above.")
     print()
@@ -341,11 +341,12 @@ def cmd_scan(args: argparse.Namespace) -> int:
     proven = [r for r in reports if r.status == "proven"]
     print()
     print(paint("bold", f"  {path}"))
-    print(paint("dim", "  " + "─" * 70))
+    print(paint("dim", "  " + "-" * 70))
     for r in reports:
         style = _STATUS_STYLE.get(r.status, "dim")
-        mark = paint("red", "✗") if r.status == "proven" else (
-            paint("green", "✓") if r.status == "unconfirmed" else paint("yellow", "?")
+        mark = paint("red", "[fail]") if r.status == "proven" else (
+            paint("green", "[pass]") if r.status == "unconfirmed"
+            else paint("yellow", "[skip]")
         )
         trigger = repr(r.certificate.args) if r.certificate else ""
         print(f"  {mark} {r.function:<28} {paint(style, r.status):<22} "
@@ -353,15 +354,15 @@ def cmd_scan(args: argparse.Namespace) -> int:
         if r.certificate:
             print(paint("dim", f"      broke: {r.certificate.rule}"))
         for w in r.warnings:
-            print("      " + paint("yellow", "⚠ ") + f"{w.condition} — {w.reason}")
-    print(paint("dim", "  " + "─" * 70))
+            print("      " + paint("yellow", "! ") + f"{w.condition} - {w.reason}")
+    print(paint("dim", "  " + "-" * 70))
     print(f"  {len(proven)} proven, {len(reports) - len(proven)} not confirmed, "
           f"of {len(reports)} investigated")
     print()
     return 0
 
 
-# ─── Entry point ─────────────────────────────────────────────────────────────
+# --- Entry point ---
 
 
 def build_parser() -> argparse.ArgumentParser:

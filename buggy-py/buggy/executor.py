@@ -1,32 +1,16 @@
 """Executes a target function many times in a reusable child process.
 
-The design decision this module exists to make: **keep process isolation, but
-pay for interpreter startup once instead of once per input.**
+Keeps process isolation but pays for interpreter startup once instead of once
+per input. Measured per execution on a one-line function: a bare `python3 -c
+pass` spawn costs 16.7 ms, the TypeScript implementation's four-temp-file and
+fresh-interpreter approach 34.9 ms, this module 0.015 ms. Those committed
+example logs took 494 seconds for seven trivial functions.
 
-Measured on an M-series Mac, calling a one-line function:
-
-===================================  ==================
-approach                             ms per execution
-===================================  ==================
-bare ``python3 -c pass`` spawn                    16.7
-four temp files + fresh interpreter               34.9
-persistent worker (this module)                    0.085
-===================================  ==================
-
-The middle row is what the TypeScript implementation does. The committed example
-logs show the consequence: 494 seconds to investigate seven trivial functions,
-with single functions taking up to 173 seconds. The bottom row is 409x faster
-and still captures crashes correctly, because the target still runs in a
-separate process that can be killed and replaced.
-
-Isolation is honest about its limits. A worker is killed and respawned on
-timeout or hard crash, so a wedged or corrupted process cannot affect later
-executions. CPU time is capped by the worker itself via ``RLIMIT_CPU``, which
-kills runaway loops by signal. A hard *memory* cap is not available on macOS
-(``RLIMIT_AS`` cannot be lowered there), so it is requested and reported rather
-than assumed; see :meth:`Executor.limits`.
-
-@module buggy.executor
+Isolation is limited and says so. A worker is killed and respawned on timeout
+or hard crash, so a wedged process cannot affect later executions, and
+RLIMIT_CPU kills runaway loops by signal. A hard memory cap is unavailable on
+macOS, where RLIMIT_AS cannot be lowered, so limits are requested and reported
+rather than assumed; see `Executor.limits`.
 """
 
 from __future__ import annotations
@@ -109,7 +93,7 @@ class Executor:
 
         self._start()
 
-    # ─── Lifecycle ───────────────────────────────────────────────────────────
+# --- Lifecycle ---
 
     def _spawn(self) -> _Worker:
         cmd = [
@@ -218,7 +202,7 @@ class Executor:
     def __exit__(self, *_exc: object) -> None:
         self.close()
 
-    # ─── Transport ───────────────────────────────────────────────────────────
+# --- Transport ---
 
     @staticmethod
     def _kill(process: subprocess.Popen) -> None:
@@ -334,7 +318,7 @@ class Executor:
             return None
         return self._read_event(worker.process, timeout, worker)
 
-    # ─── Public surface ──────────────────────────────────────────────────────
+# --- Public surface ---
 
     def can_construct(
         self,

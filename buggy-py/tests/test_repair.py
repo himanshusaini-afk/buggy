@@ -14,7 +14,6 @@ from pathlib import Path
 from buggy.inspection import body_insertion_point, find_function
 from buggy.prove import Config, investigate
 from buggy.repair import Patch, analyse_trigger, propose
-from buggy.types import OracleKind
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample.py"
 FAST = Config(max_executions=300, timeout=1.0)

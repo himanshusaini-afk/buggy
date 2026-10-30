@@ -1,32 +1,21 @@
 """Generates candidate fixes, and verifies them by execution.
 
-The original implementation generated patches and then scored them with a
-hand-written logistic model to guess whether each was "overfit". In its own
-recorded runs that model rejected **all 21** patches it was given, across both
-languages, scoring the correct ``if people == 0: return 0.0`` guard at 93%
-likely-overfit; every score landed in [0.86, 0.99] against a 0.5 threshold, so
-no patch could ever be approved.
+Patches are not scored, they are tested. Each is applied in memory and must
+answer four questions:
 
-This module does not score patches. It **tests** them, which is affordable
-because a call costs ~0.015 ms. Every candidate is applied in memory and must
-earn its verdict against four questions:
+1. Does it parse?
+2. Does the proven trigger stop failing?
+3. Does anything that worked now behave differently?
+4. Do other inputs of the same shape get fixed too?
 
-1. **Does it parse?** A patch that breaks the file is discarded immediately.
-2. **Does it fix the proven trigger?** The exact input from the certificate is
-   re-run and must no longer fail.
-3. **Does it break anything that worked?** Every input the original handled is
-   re-run against the patch, and any changed result is a regression.
-4. **Does it generalise?** Sibling inputs of the same shape as the trigger (the
-   same zero denominator with different numerators, other empty collections) are
-   generated and must be handled too.
+Question 4 is the honest overfitting check: a patch special-casing the one
+input that caught it passes 1-3 and fails here. This replaces a scoring model
+that, in the TypeScript implementation's own recorded runs, rejected all 21
+patches it was given - including the correct `if people == 0: return 0.0`
+guard, at 93% likely-overfit, with every score inside [0.86, 0.99] against a
+0.5 threshold.
 
-Question 4 is the honest version of the overfitting check. A patch that special-
-cases the one input that caught it will pass 1–3 and fail here, and it fails on
-evidence rather than on a coefficient.
-
-Nothing is ever written to your source. Patches are returned as data.
-
-@module buggy.repair
+Nothing is written to the user's source. Patches are returned as data.
 """
 
 from __future__ import annotations
@@ -63,7 +52,7 @@ from .types import (
 __all__ = ["Patch", "Evidence", "RepairResult", "propose", "TriggerShape"]
 
 
-# ─── What broke, in a language-independent form ──────────────────────────────
+# --- What broke, in a language-independent form ---
 
 
 @dataclass(frozen=True)
@@ -150,7 +139,7 @@ def analyse_trigger(
     return shapes
 
 
-# ─── Patches ─────────────────────────────────────────────────────────────────
+# --- Patches ---
 
 
 @dataclass
@@ -344,7 +333,7 @@ def _message_for(shapes: list[TriggerShape]) -> str:
     return "; ".join(parts) or "invalid argument"
 
 
-# ─── Verification ────────────────────────────────────────────────────────────
+# --- Verification ---
 
 
 @dataclass
@@ -424,14 +413,6 @@ class RepairResult:
     @property
     def verified(self) -> list[tuple[Patch, Evidence]]:
         return [(p, e) for p, e in self.candidates if e.verdict == "verified"]
-
-
-_EQUIVALENT_EMPTIES: dict[str, tuple[Any, ...]] = {
-    "list": ([],),
-    "str": ("",),
-    "dict": ({},),
-    "tuple": ((),),
-}
 
 
 def _same_class_values(shape: TriggerShape) -> tuple[Any, ...]:

@@ -326,7 +326,7 @@ class TestInstanceMethods(unittest.TestCase):
 
     def test_unconstrained_constructor_argument_is_still_found(self):
         """Left unconstrained, the invalid-state failure is reported rather than
-        hidden — it is a real missing-validation defect, just ranked low."""
+        hidden - it is a real missing-validation defect, just ranked low."""
         report = investigate(FIXTURE, "Basket.scaled", config=FAST)
         self.assertEqual(report.status, "proven")
 

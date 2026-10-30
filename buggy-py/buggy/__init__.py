@@ -1,4 +1,4 @@
-"""Buggy — proof-carrying debugging for Python.
+"""Buggy - proof-carrying debugging for Python.
 
 Finds a real failing input by executing your code, verifies the failure three
 ways before reporting it, and hands back a certificate naming the exact input
@@ -20,7 +20,6 @@ from .types import (
     ConditionResult,
     ExecResult,
     FunctionInfo,
-    FunctionSpec,
     OracleKind,
     Outcome,
     Parameter,
@@ -38,7 +37,6 @@ __all__ = [
     "ConditionResult",
     "ExecResult",
     "FunctionInfo",
-    "FunctionSpec",
     "OracleKind",
     "Outcome",
     "Parameter",

@@ -8,7 +8,7 @@ signature forms that tripped the original implementation.
 import random
 
 
-# ─── Proven-defect shapes ────────────────────────────────────────────────────
+# --- Proven-defect shapes ---
 
 def divide(numerator, denominator):
     """BUG: denominator == 0 raises ZeroDivisionError."""
@@ -43,7 +43,7 @@ def hangs(n: int) -> int:
         n += 1
 
 
-# ─── Clean ───────────────────────────────────────────────────────────────────
+# --- Clean ---
 
 def clamp_percent(value: float) -> float:
     """Bounded by construction, so it cannot leave [0, 100]."""
@@ -64,7 +64,7 @@ def length(items):
     return len(items)
 
 
-# ─── Signature forms ─────────────────────────────────────────────────────────
+# --- Signature forms ---
 
 def annotated(count: int, label: str, *, scale: float = 1.0) -> str:
     return f"{label}:{count * scale}"
@@ -119,7 +119,7 @@ def outer(x):
     return inner(x)
 
 
-# ─── Receiver shapes ─────────────────────────────────────────────────────────
+# --- Receiver shapes ---
 
 class Basket:
     """The defect lives in the CONSTRUCTOR argument, not the method's own.

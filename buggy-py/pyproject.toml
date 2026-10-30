@@ -20,7 +20,7 @@ classifiers = [
 ]
 
 # No runtime dependencies, on purpose. Everything here is standard library, so
-# the package installs on any supported Python without waiting for a wheel —
+# the package installs on any supported Python without waiting for a wheel -
 # including 3.15, where several popular packages have none yet. It also means
 # the tool cannot break the environment of the project it is inspecting.
 dependencies = []

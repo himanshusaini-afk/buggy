@@ -1,31 +1,24 @@
-"""Reads function signatures and spans out of Python source, via ``ast``.
+"""Reads function signatures and spans out of Python source, via `ast`.
 
-Using the standard library here instead of tree-sitter is a deliberate
-simplification over the TypeScript original, which loaded a native
-``tree-sitter-python`` grammar, fixed one grammar per process from a config
-value, and silently fell back to the *TypeScript* grammar when the Python one
-failed to load — producing confidently wrong results. ``ast`` has none of those
-problems: it is always present, always correct for the running Python, gives
-exact line and column spans, and cannot be configured into the wrong language.
+The stdlib rather than tree-sitter, deliberately: `ast` is always present,
+always correct for the running Python, gives exact spans, and cannot be
+configured into the wrong language. The TypeScript original loaded a native
+grammar chosen once per process and fell back silently to the TypeScript
+grammar when the Python one failed to load, producing confidently wrong results.
 
 Two things it gets right that the original did not:
 
-**``self`` and ``cls`` are not parameters.** The original counted them, so every
-method's arity came back one too high, and the fuzzer then called it with an
-extra argument. That raises ``TypeError``, which looks exactly like the defect
-the tool is supposed to find.
-
-**Nested and class-scoped functions are distinguished.** A function defined
-inside another function cannot be reached by name after the module executes, so
-it is reported rather than silently investigated and found "clean".
-
-@module buggy.inspection
+- `self` and `cls` are not parameters. Counting them made every method's arity
+  one too high, so the fuzzer called with a spare argument and got a TypeError
+  that looks exactly like the defect it is meant to find.
+- Nested and class-scoped functions are distinguished. A function defined
+  inside another cannot be reached by name after the module runs, so it is
+  reported rather than investigated and found "clean".
 """
 
 from __future__ import annotations
 
 import ast
-from dataclasses import replace
 
 from .types import ClassInfo, FunctionInfo, Parameter, ParamKind, Signature
 
@@ -60,7 +53,7 @@ def parse(source: str, filename: str = "<target>") -> ast.Module:
         ) from exc
 
 
-# ─── Signatures ──────────────────────────────────────────────────────────────
+# --- Signatures ---
 
 
 def _annotation_text(node: ast.expr | None) -> str | None:
@@ -138,7 +131,7 @@ def _signature(
     )
 
 
-# ─── Discovery ───────────────────────────────────────────────────────────────
+# --- Discovery ---
 
 
 def find_classes(source: str, filename: str = "<target>") -> dict[str, ClassInfo]:
@@ -165,13 +158,9 @@ def find_classes(source: str, filename: str = "<target>") -> dict[str, ClassInfo
                             and any(p.is_variadic for p in init.parameters)
                         )
                         break
-                bases = tuple(
-                    ast.unparse(b) for b in child.bases
-                    if isinstance(b, (ast.Name, ast.Attribute))
-                )
                 classes[qualified] = ClassInfo(
                     name=child.name, qualified_name=qualified, line=child.lineno,
-                    init=init, init_is_variadic=variadic_only, bases=bases,
+                    init=init, init_is_variadic=variadic_only,
                 )
                 visit(child, stack + (child.name,))
             elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -366,7 +355,7 @@ def describe_unsupported(
     """Why this function cannot be investigated, or None if it can.
 
     Said plainly and up front. The alternative is investigating something that
-    cannot be called, finding nothing, and reporting "clean" — which reads as
+    cannot be called, finding nothing, and reporting "clean" - which reads as
     evidence of safety and is the most damaging thing this tool can do.
 
     @param classes: the file's classes, needed to judge whether an instance

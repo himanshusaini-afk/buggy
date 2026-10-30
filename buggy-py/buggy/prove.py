@@ -1,30 +1,20 @@
 """Finds a failing input and verifies it three ways before reporting it.
 
-The claim "proof-carrying" means something specific and limited here, and it is
-worth stating plainly: there is no solver and no symbolic reasoning. A finding
-is a *certificate of observed failure*. It says that this exact input was run,
-that it satisfied the stated preconditions, that the failure was re-observed on
-a fresh process, and that it recurred on repeat attempts. That is a strong
-guarantee against false positives and no guarantee at all about inputs that
-were never tried.
+"Proof-carrying" means something limited here: there is no solver and no
+symbolic reasoning. A finding is a certificate of observed failure, which is a
+strong guarantee against false positives and no guarantee at all about inputs
+never tried.
 
 The three pillars:
 
-**Admissibility** — the triggering input satisfies every precondition. Without
-this a "bug" may just be a call the caller promised never to make. Unlike the
-original implementation, a precondition that cannot be *evaluated* blocks
-certification rather than being skipped, because an unevaluable precondition
-means admissibility is unknown, and unknown is not the same as satisfied.
-
-**Soundness** — the function is run again, in a fresh worker, and the failure is
-observed a second time. This catches findings that were an artefact of earlier
-state in the worker process.
-
-**Reproducibility** — three further runs, of which at least two must reproduce
-the same class of failure. The majority rule tolerates a genuinely flaky
-environment without accepting a one-off.
-
-@module buggy.prove
+- Admissibility: the input satisfies every precondition. Otherwise a "bug" may
+  be a call the caller promised never to make. A precondition that cannot be
+  evaluated blocks certification, because unknown is not the same as satisfied.
+- Soundness: the failure is observed again on a fresh execution, which rules
+  out an artefact of earlier state in the worker.
+- Reproducibility: at least 2 of 3 further runs reproduce the same failure
+  class. The majority rule tolerates a flaky environment without accepting a
+  one-off.
 """
 
 from __future__ import annotations
@@ -48,7 +38,6 @@ from .inspection import (
 from .specs import (
     Condition,
     SpecSyntaxError,
-    build_bindings,
     compile_condition,
     preconditions_hold,
 )
@@ -58,7 +47,6 @@ from .types import (
     ClassInfo,
     ExecResult,
     FunctionInfo,
-    FunctionSpec,
     OracleKind,
     Outcome,
     Receiver,
@@ -123,7 +111,7 @@ class Config:
     """How many constructions to try before giving up on building a receiver."""
 
 
-# ─── Specification handling ──────────────────────────────────────────────────
+# --- Specification handling ---
 
 
 @dataclass
@@ -133,20 +121,21 @@ class _Spec:
     warnings: list[SpecWarning] = field(default_factory=list)
 
 
-def _compile_spec(spec: FunctionSpec) -> _Spec:
+def _compile_spec(preconditions: list[str],
+                  postconditions: list[str]) -> _Spec:
     """Compile conditions, collecting a warning for each one that cannot be.
 
     This is the single most important behavioural difference from the original.
     There, conditions were compiled as JavaScript and every failure was
     swallowed, so a Python-syntax condition against a Python target did nothing
-    and the investigation reported "no bug found" — indistinguishable from
+    and the investigation reported "no bug found" - indistinguishable from
     genuine safety. Here each failure is surfaced with the reason and, when the
     text looks like JavaScript, the Python equivalent.
     """
     out = _Spec()
     for role, texts, sink in (
-        ("precondition", spec.preconditions, out.preconditions),
-        ("postcondition", spec.postconditions, out.postconditions),
+        ("precondition", preconditions, out.preconditions),
+        ("postcondition", postconditions, out.postconditions),
     ):
         for text in texts:
             try:
@@ -156,12 +145,7 @@ def _compile_spec(spec: FunctionSpec) -> _Spec:
     return out
 
 
-_preconditions_hold = preconditions_hold
-"""Shared with :mod:`buggy.repair`, which needs the same judgement to decide
-which inputs a patch is allowed to change."""
-
-
-# ─── Verification ────────────────────────────────────────────────────────────
+# --- Verification ---
 
 
 def _choose_receiver(
@@ -256,21 +240,15 @@ def _candidate_calls(
 ) -> list[tuple[Receiver | None, list[Any]]]:
     """Every (receiver, arguments) pair to try, most attributable first.
 
-    A method's real input space is the **product of its constructor arguments
-    and its own**. Varying only the latter misses a whole class of defect:
-    ``Cart.average_price()`` takes no arguments at all, and its
-    ZeroDivisionError lives entirely in ``Cart([])``. Searching only method
+    A method's input space is the product of its constructor arguments and its
+    own. `Cart.average_price()` takes no arguments at all and its
+    ZeroDivisionError lives entirely in `Cart([])`, so searching only method
     arguments would report it clean.
 
-    The two phases keep blame legible:
-
-    1. a known-good receiver against every generated argument list, so a finding
-       is unambiguously about the method's own arguments;
-    2. generated constructor arguments against ordinary method arguments, which
-       finds defects that depend on the object's state.
-
-    Constructor arguments that fail to build are not charged to the budget; see
-    the ReceiverConstructionFailed branch in :func:`_search`.
+    Two phases keep blame legible: a known-good receiver against every argument
+    list, so a finding is unambiguously about the method's arguments; then
+    generated constructor arguments against ordinary ones, for defects that
+    depend on the object's state.
     """
     method_args = generate_arguments(signature, limit=limit, seed=seed)
 
@@ -330,12 +308,12 @@ def _certify(
 ) -> tuple[Certificate | None, str | None]:
     """Run the three pillars. Returns the certificate, or None and a reason."""
     # Pillar 1: admissibility.
-    admissible, why = _preconditions_hold(
+    admissible, why = preconditions_hold(
         spec.preconditions, violation.args, names, init_names,
         tuple(receiver.args) if receiver is not None else (),
     )
     if not admissible:
-        return None, f"not certified — {why}"
+        return None, f"not certified - {why}"
     admissible_at = _now()
 
     # Nondeterminism is verified by its own definition rather than by re-running
@@ -345,7 +323,7 @@ def _certify(
             target, violation.args, 5, timeout=config.timeout, receiver=receiver
         )
         if not oracles.outcomes_differ(results):
-            return None, "not certified — the outcome was consistent on re-execution"
+            return None, "not certified - the outcome was consistent on re-execution"
         stamp = _now()
         return (
             Certificate(
@@ -359,15 +337,15 @@ def _certify(
             None,
         )
 
-    # Pillar 2: soundness — observe it again on a fresh execution.
+    # Pillar 2: soundness - observe it again on a fresh execution.
     rerun = executor.call(
         target, violation.args, timeout=config.timeout, receiver=receiver
     )
     if not _same_failure(violation, rerun, spec, names):
-        return None, "not certified — the failure did not recur on re-execution"
+        return None, "not certified - the failure did not recur on re-execution"
     sound_at = _now()
 
-    # Pillar 3: reproducibility — majority of further attempts.
+    # Pillar 3: reproducibility - majority of further attempts.
     repeats = executor.call_many(
         target, violation.args, REPRODUCTION_ATTEMPTS,
         timeout=config.timeout, receiver=receiver,
@@ -375,7 +353,7 @@ def _certify(
     reproduced = sum(1 for r in repeats if _same_failure(violation, r, spec, names))
     if reproduced < REPRODUCTIONS_REQUIRED:
         return None, (
-            f"not certified — reproduced only {reproduced} of "
+            f"not certified - reproduced only {reproduced} of "
             f"{REPRODUCTION_ATTEMPTS} times"
         )
 
@@ -392,7 +370,7 @@ def _certify(
     )
 
 
-# ─── Entry points ────────────────────────────────────────────────────────────
+# --- Entry points ---
 
 
 def investigate(
@@ -450,12 +428,8 @@ def investigate(
         return finish(Report(function=function, file=str(file_path),
                              status="skipped", note=unsupported))
 
-    spec = _compile_spec(FunctionSpec(
-        name=info.qualified_name,
-        preconditions=list(preconditions or []),
-        postconditions=list(postconditions or []),
-        signature=info.signature,
-    ))
+    spec = _compile_spec(list(preconditions or []),
+                         list(postconditions or []))
     names = info.signature.names
 
     owned = executor is None
@@ -534,7 +508,7 @@ def _search(
         if report.executions >= config.max_executions:
             break
 
-        admissible, _ = _preconditions_hold(
+        admissible, _ = preconditions_hold(
             spec.preconditions, args, names,
             init_names,
             tuple(call_receiver.args) if call_receiver is not None else (),

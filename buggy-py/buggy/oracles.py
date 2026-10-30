@@ -1,21 +1,11 @@
 """Decides whether an execution counts as a failure.
 
-Five oracles, checked in this order, because the earlier ones are unambiguous
-and the later ones depend on having a usable return value:
+Five oracles, checked in order: timeout, crash, postcondition, non-finite,
+nondeterminism. The user's own postconditions come before the built-in numeric
+checks, so a broken rule is reported in their words.
 
-1. **timeout** — the call did not finish
-2. **crash** — it raised, and the exception is the function's fault
-3. **non-finite** — it returned NaN or an infinity
-4. **postcondition** — it returned a value the user said was impossible
-5. **nondeterminism** — the same input produced different results
-
-The distinction that does the most work is in :func:`is_environment_error`:
-telling a defect in the function apart from a failure of the harness around it.
-A ``SyntaxError`` means the module never loaded, so nothing has been learned
-about the function; reporting it as a bug is a false positive that destroys
-trust. A ``ZeroDivisionError``, by contrast, is exactly what we are looking for.
-
-@module buggy.oracles
+Two rankings keep the signal usable, because the easiest failures to trigger
+are the least interesting. See `check_non_finite` and `is_type_confusion`.
 """
 
 from __future__ import annotations
@@ -39,53 +29,39 @@ from .types import (
 )
 
 __all__ = [
-    "is_environment_error",
-    "is_type_confusion",
+    "ENVIRONMENT_EXCEPTIONS",
+    "canonical",
     "check_crash",
-    "check_timeout",
+    "check_determinism",
     "check_non_finite",
     "check_postconditions",
-    "check_determinism",
-    "canonical",
+    "check_timeout",
     "comparison_key",
+    "is_environment_error",
+    "is_type_confusion",
     "outcomes_differ",
-    "ENVIRONMENT_EXCEPTIONS",
 ]
 
 
-ENVIRONMENT_EXCEPTIONS: frozenset[str] = frozenset(
-    {
-        # The module never loaded, so the function never ran.
-        "SyntaxError",
-        "IndentationError",
-        "TabError",
-        "ModuleNotFoundError",
-        "ImportError",
-        # Our own harness failing to find or reach the target.
-        "FunctionNotResolved",
-        "ModuleNotLoaded",
-        "LoadCrashed",
-        # The receiver for an instance method could not be built. A failure in
-        # __init__ says nothing about the method under test, so attributing it
-        # to that method would be a false positive.
-        "ReceiverConstructionFailed",
-        # The interpreter could not be started.
-        "SpawnError",
-        "InterpreterDied",
-    }
-)
-"""Exceptions that indicate a problem with the setup, not the function.
+ENVIRONMENT_EXCEPTIONS: frozenset[str] = frozenset({
+    # The module never loaded, so the function never ran.
+    "SyntaxError", "IndentationError", "TabError",
+    "ModuleNotFoundError", "ImportError",
+    # Our harness failing to find or reach the target.
+    "FunctionNotResolved", "ModuleNotLoaded", "LoadCrashed",
+    # The receiver could not be built. A failure in __init__ says nothing
+    # about the method under test.
+    "ReceiverConstructionFailed",
+    # The interpreter could not be started.
+    "SpawnError", "InterpreterDied",
+})
+"""Exceptions indicating a problem with the setup, not the function.
 
-Everything else is treated as a real defect, including ``ZeroDivisionError``,
-``TypeError``, ``ValueError``, ``IndexError``, ``KeyError``, ``AttributeError``
-and ``RecursionError``. A ``NameError`` raised at call time is also a real
-defect — a genuine missing reference inside the function body — which is why it
-is absent from this set even though it looks environmental.
+Everything else is a real defect, including ZeroDivisionError, TypeError,
+ValueError, IndexError, KeyError and RecursionError. A NameError raised at call
+time is also real - a missing reference inside the function body - which is why
+it is absent here despite looking environmental.
 """
-
-_RECURSION_IS_REAL = True
-"""``RecursionError`` counts as a defect: unbounded recursion on a plausible
-input is precisely the kind of fault worth proving."""
 
 
 def is_environment_error(result: ExecResult) -> bool:
@@ -93,28 +69,18 @@ def is_environment_error(result: ExecResult) -> bool:
     if result.exception_type in ENVIRONMENT_EXCEPTIONS:
         return True
     message = result.message or ""
-    # A load-time syntax problem can surface with a wrapped type.
     return "IndentationError" in message or "SyntaxError" in message
 
 
-_TYPE_CONFUSION_MARKERS: tuple[str, ...] = (
-    # Substrings of real CPython messages, deliberately not anchored to the
-    # type name: "'int' object is not iterable" and "'NoneType' object is not
-    # iterable" must both match.
-    "unsupported operand type",
-    "not supported between instances",
-    "can only concatenate",
-    "is not iterable",
-    "is not subscriptable",
-    "is not callable",
-    "cannot be interpreted as an integer",
-    "has no len",
-    "object of type",
-    "has no attribute",
-    "must be str",
-    "must be real number",
-    "must be an integer",
-    "nonetype",
+# Substrings of real CPython messages, not anchored to the type name so that
+# "'int' object is not iterable" and "'NoneType' object is not iterable" both
+# match.
+_TYPE_CONFUSION_MARKERS = (
+    "unsupported operand type", "not supported between instances",
+    "can only concatenate", "is not iterable", "is not subscriptable",
+    "is not callable", "cannot be interpreted as an integer", "has no len",
+    "object of type", "has no attribute", "must be str",
+    "must be real number", "must be an integer", "nonetype",
 )
 
 TYPE_CONFUSION_ADVICE = (
@@ -134,10 +100,10 @@ PROPAGATION_ADVICE = (
 def is_type_confusion(result: ExecResult) -> bool:
     """Whether the failure is just an argument of the wrong type.
 
-    Python is duck-typed, so ``divide(None, None)`` raising ``TypeError`` is the
-    language working as designed and the caller getting it wrong. Such a finding
-    is kept — it may be the only one — but ranked below anything else, so it
-    cannot crowd out the ``ZeroDivisionError`` that matters.
+    Python is duck-typed, so `divide(None, None)` raising TypeError is the
+    language working and the caller getting it wrong. Such a finding is kept -
+    it may be the only one - but ranked below anything else so it cannot crowd
+    out the ZeroDivisionError that matters.
     """
     if result.exception_type not in ("TypeError", "AttributeError"):
         return False
@@ -145,15 +111,14 @@ def is_type_confusion(result: ExecResult) -> bool:
     return any(marker in message for marker in _TYPE_CONFUSION_MARKERS)
 
 
-# ─── Individual oracles ──────────────────────────────────────────────────────
+# --- Individual oracles ---
 
 
 def check_crash(result: ExecResult, args: list[Any]) -> Violation | None:
     """A raised exception that belongs to the function."""
-    if result.outcome is not Outcome.RAISED:
+    if result.outcome is not Outcome.RAISED or is_environment_error(result):
         return None
-    if is_environment_error(result):
-        return None
+    confused = is_type_confusion(result)
     return Violation(
         kind=OracleKind.CRASH,
         args=args,
@@ -161,14 +126,14 @@ def check_crash(result: ExecResult, args: list[Any]) -> Violation | None:
         rule=f"must not raise {result.exception_type}",
         detail=f"{result.exception_type}: {result.message}",
         duration_ms=result.duration_ms,
-        severity=(
-            SEVERITY_TYPE_CONFUSION if is_type_confusion(result) else SEVERITY_NORMAL
-        ),
-        advice=TYPE_CONFUSION_ADVICE if is_type_confusion(result) else None,
+        severity=SEVERITY_TYPE_CONFUSION if confused else SEVERITY_NORMAL,
+        advice=TYPE_CONFUSION_ADVICE if confused else None,
     )
 
 
-def check_timeout(result: ExecResult, args: list[Any], budget: float) -> Violation | None:
+def check_timeout(
+    result: ExecResult, args: list[Any], budget: float
+) -> Violation | None:
     """The call did not finish inside its budget."""
     if result.outcome is not Outcome.TIMEOUT:
         return None
@@ -184,10 +149,8 @@ def check_timeout(result: ExecResult, args: list[Any], budget: float) -> Violati
 
 
 def _contains_non_finite(value: Any, depth: int = 0) -> bool:
-    """Whether `value` holds a NaN or an infinity, looking inside containers."""
-    if depth > 4:
-        return False
-    if isinstance(value, bool):
+    """Whether `value` holds a NaN or infinity, looking inside containers."""
+    if depth > 4 or isinstance(value, bool):
         return False
     if isinstance(value, float):
         return math.isnan(value) or math.isinf(value)
@@ -199,23 +162,16 @@ def _contains_non_finite(value: Any, depth: int = 0) -> bool:
 
 
 def check_non_finite(result: ExecResult, args: list[Any]) -> Violation | None:
-    """A numeric result that is NaN or infinite, from finite inputs.
+    """A NaN or infinite result, from finite inputs.
 
-    Checked without the user asking, because a NaN result is almost never
-    intended and propagates silently: a NaN price flows through a whole system
-    before anything notices.
+    Checked without being asked, because a NaN result is almost never intended
+    and propagates silently through a whole system.
 
-    **Propagation is not a defect.** If an argument was already NaN or infinite,
-    a non-finite result is the function obeying IEEE 754, not failing. Blaming
-    it would flag every unguarded arithmetic function in the codebase on an
-    input the caller should never have produced — which is the dominant source
-    of noise in this kind of tool, and the reason the original's own
-    documentation calls preconditions "the single most important knob for signal
-    quality". Suppressing it here means that knob is no longer needed to get a
-    usable answer.
-
-    ``bool`` is excluded despite being an ``int`` subclass, and integers are
-    excluded because Python integers cannot be infinite.
+    Propagation is not a defect: if an argument was already non-finite, a
+    non-finite result is IEEE 754 working, not the function failing. Blaming it
+    would flag every unguarded arithmetic function in a codebase the moment the
+    fuzzer tries NaN, which is the dominant source of noise in this kind of
+    tool.
     """
     if not result.value_is_usable:
         return None
@@ -225,21 +181,13 @@ def check_non_finite(result: ExecResult, args: list[Any]) -> Violation | None:
     if _contains_non_finite(args):
         return None
     if math.isnan(value):
-        return Violation(
-            kind=OracleKind.NON_FINITE,
-            args=args,
-            result=value,
-            rule="not math.isnan(result)",
-            duration_ms=result.duration_ms,
-        )
+        return Violation(OracleKind.NON_FINITE, args, value,
+                         "not math.isnan(result)",
+                         duration_ms=result.duration_ms)
     if math.isinf(value):
-        return Violation(
-            kind=OracleKind.NON_FINITE,
-            args=args,
-            result=value,
-            rule="math.isfinite(result)",
-            duration_ms=result.duration_ms,
-        )
+        return Violation(OracleKind.NON_FINITE, args, value,
+                         "math.isfinite(result)",
+                         duration_ms=result.duration_ms)
     return None
 
 
@@ -251,67 +199,60 @@ def check_postconditions(
 ) -> tuple[Violation | None, list[tuple[Condition, ConditionResult]]]:
     """Evaluate every postcondition against the return value.
 
-    Returns the first violation found, plus every condition's outcome so the
-    caller can report the ones that could not be evaluated. Those are warnings,
-    never silent passes.
+    Returns the first violation plus every condition's outcome, so the caller
+    can report the ones that could not be evaluated. Those are warnings, never
+    silent passes.
     """
     if not conditions:
         return None, []
+
     if not result.value_is_usable:
         # Judging `result >= 0` against the repr of an object would fail for
-        # reasons unrelated to the function. Report, do not guess.
+        # reasons unrelated to the function.
+        reason = (f"return value of type {result.value_type} could not be "
+                  "transferred for inspection")
         return None, [
-            (
-                c,
-                ConditionResult(
-                    Verdict.UNEVALUABLE,
-                    f"return value of type {result.value_type} could not be "
-                    "transferred for inspection",
-                ),
-            )
-            for c in conditions
+            (c, ConditionResult(Verdict.UNEVALUABLE, reason)) for c in conditions
         ]
 
-    bindings = build_bindings(
-        parameter_names, args, result.value, include_result=True
-    )
+    bindings = build_bindings(parameter_names, args, result.value,
+                              include_result=True)
     outcomes = [(c, c.evaluate(bindings)) for c in conditions]
 
     for condition, outcome in outcomes:
-        if outcome.verdict is Verdict.FALSE:
-            # A stated property is honoured literally, including when the result
-            # is non-finite. But if an argument was *also* non-finite, the
-            # function only propagated it, so this is ranked below a trigger the
-            # function manufactured itself — otherwise `apply_discount(inf, 100)`
-            # returning NaN would mask the negative price at `(1, 101)`, which
-            # is the finding the user can act on.
-            propagated = (
-                _contains_non_finite(args) and _contains_non_finite(result.value)
-            )
-            return (
-                Violation(
-                    kind=OracleKind.POSTCONDITION,
-                    args=args,
-                    result=result.value,
-                    rule=condition.source,
-                    duration_ms=result.duration_ms,
-                    severity=SEVERITY_PROPAGATED if propagated else SEVERITY_STATED,
-                    advice=PROPAGATION_ADVICE if propagated else None,
-                ),
-                outcomes,
-            )
+        if outcome.verdict is not Verdict.FALSE:
+            continue
+        # A stated property is honoured literally, including for a non-finite
+        # result. But if an argument was also non-finite the function only
+        # propagated it, so rank it below a trigger the function made itself:
+        # otherwise `apply_discount(inf, 100)` returning NaN masks the negative
+        # price at (1, 101), which is the finding the user can act on.
+        propagated = (_contains_non_finite(args)
+                      and _contains_non_finite(result.value))
+        return (
+            Violation(
+                kind=OracleKind.POSTCONDITION,
+                args=args,
+                result=result.value,
+                rule=condition.source,
+                duration_ms=result.duration_ms,
+                severity=SEVERITY_PROPAGATED if propagated else SEVERITY_STATED,
+                advice=PROPAGATION_ADVICE if propagated else None,
+            ),
+            outcomes,
+        )
     return None, outcomes
 
 
-# ─── Determinism ─────────────────────────────────────────────────────────────
+# --- Comparing outcomes ---
 
 
 def canonical(result: ExecResult) -> str:
     """A stable string identifying an outcome, for equality comparison.
 
-    NaN is folded to a single token on purpose. ``float('nan') != float('nan')``,
-    so comparing raw values would report a function that reliably returns NaN as
-    non-deterministic — a false positive on top of the NaN finding it already has.
+    NaN folds to one token on purpose: `float('nan') != float('nan')`, so
+    comparing raw values would report a function that reliably returns NaN as
+    non-deterministic.
     """
     if result.outcome is Outcome.TIMEOUT:
         return "timeout"
@@ -324,7 +265,7 @@ def canonical(result: ExecResult) -> str:
         return "ok:nan"
     try:
         return "ok:" + json.dumps(value, sort_keys=True, default=repr)
-    except (TypeError, ValueError):  # pragma: no cover - default= makes this rare
+    except (TypeError, ValueError):
         return "ok:" + repr(value)
 
 
@@ -344,21 +285,18 @@ def _normalise_zeros(value: Any) -> Any:
 
 
 def comparison_key(result: ExecResult) -> str:
-    """A key for asking "did this behave the same?", tolerant of signed zero.
+    """A key for "did this behave the same?", tolerant of signed zero.
 
-    Distinct from :func:`canonical`, which is deliberately strict. ``-0.0`` and
-    ``0.0`` are the same answer to any caller, and treating them as different
-    rejected a correct clamp fix: ``max(0, -0.0)`` returns the integer ``0``,
-    which flipped the sign of a zero result and looked like a behaviour change.
+    Distinct from `canonical`, which stays strict for determinism checking.
+    -0.0 and 0.0 are the same answer to any caller, and treating them as
+    different rejected a correct clamp fix: `max(0, -0.0)` returns integer 0,
+    which flipped the sign of a zero result and looked like a change.
     """
     if result.outcome is not Outcome.OK:
         return canonical(result)
-    normalised = ExecResult(
-        Outcome.OK,
-        value=_normalise_zeros(result.value),
-        fidelity=result.fidelity,
-    )
-    return canonical(normalised)
+    return canonical(ExecResult(Outcome.OK,
+                                value=_normalise_zeros(result.value),
+                                fidelity=result.fidelity))
 
 
 def outcomes_differ(results: list[ExecResult]) -> bool:
@@ -367,8 +305,7 @@ def outcomes_differ(results: list[ExecResult]) -> bool:
 
 
 def check_determinism(
-    results: list[ExecResult],
-    args: list[Any],
+    results: list[ExecResult], args: list[Any]
 ) -> Violation | None:
     """Repeated executions of one input that did not agree."""
     if not outcomes_differ(results):
