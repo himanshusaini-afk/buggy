@@ -8,6 +8,34 @@ A multi-agent system that autonomously analyzes code, proves bugs exist with for
 module-by-module split of what is wired into the live pipeline and what is
 library code only.
 
+## Working on a Python project?
+
+Read this before you start, because the answer depends on what you need.
+
+**This tool does prove bugs in Python.** `language: python` selects the
+`tree-sitter-python` grammar and runs your functions in a real `python`
+interpreter, so a `ZeroDivisionError` is observed rather than inferred. See
+[`examples/expense-api`](examples/expense-api/) for a complete recorded run over
+Python sources.
+
+**But its specification language is JavaScript, whatever the target language.**
+Pre- and postconditions are compiled with `new Function`, so a Python-syntax
+condition such as `len(result) > 0` raises a JavaScript `SyntaxError`, is
+discarded, and the investigation reports "no bug found" — which is
+indistinguishable from genuine safety. Write conditions in JavaScript (see
+[Programmatic API](#programmatic-api)), or use the package below.
+
+**[→ `buggy-py/`](buggy-py/)** is a native Python rewrite where conditions are
+Python, an unevaluable condition is a visible warning rather than silence, and
+execution reuses one worker process instead of spawning an interpreter per
+input. On the seven functions in `examples/expense-api` it proves 4 defects in
+0.3 s where this implementation proves 3 in 494 s.
+
+It is **early**: proving works and is tested, while repair, classification,
+persistence and the MCP server are not written yet. Its README states exactly
+what runs. For repair, patch classification, the Watchlist or Kiro integration,
+use this implementation.
+
 ## Quick Start
 
 ```bash
@@ -106,7 +134,10 @@ npm link         # optional: expose `buggy` / `buggy-mcp` globally
 - Node.js >= 18.0.0
 - Tree-sitter grammars for TypeScript/JavaScript and Python are **bundled** — no separate grammar install needed
 - An LSP server for symbol resolution (optional but recommended)
-- For Python bug proving: a `python` interpreter on `PATH` (functions are executed in a real Python process)
+- For Python bug proving: a `python` interpreter on `PATH` (functions are executed in a real Python process). Note that specifications are still written in JavaScript — see [Working on a Python project?](#working-on-a-python-project)
+
+The Python package in [`buggy-py/`](buggy-py/) needs none of the above: Python
+3.10+ and no dependencies at all.
 
 ## Integration Guide
 
@@ -167,6 +198,12 @@ const report = await debugger_.investigate({
   functionId: 'processPayment',
   filePath: 'src/payments.ts',
   specification: {
+    // Conditions are JavaScript expressions — including when the target is
+    // Python. They are compiled with `new Function`, and a condition that
+    // fails to compile or throws is SKIPPED SILENTLY, so a Python-syntax
+    // condition has no effect and the investigation still reports
+    // "unconfirmed". Parameter names are in scope, plus `result` in a
+    // postcondition. For Python conditions, see `buggy-py/`.
     preconditions: ['amount > 0'],
     postconditions: ['result.status === "success" || result.status === "failed"'],
     parameters: [{ name: 'amount', type: 'number' }],
