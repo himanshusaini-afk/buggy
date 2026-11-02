@@ -15,7 +15,7 @@ import random
 import sys
 from typing import Any
 
-from .types import Signature
+from .models import Signature
 
 __all__ = [
     "MAX_COMBINATIONS",

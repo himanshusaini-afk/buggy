@@ -148,12 +148,17 @@ class TestToolDescriptions(McpTestCase):
         self.session.initialize()
         self.tools = self.session.request("tools/list")["result"]["tools"]
 
-    def test_four_tools_advertised(self):
+    def test_advertised_tools(self):
         self.assertEqual(
             {t["name"] for t in self.tools},
             {"buggy_functions", "buggy_investigate", "buggy_repair",
-             "buggy_scan"},
+             "buggy_scan", "buggy_recall", "buggy_recheck"},
         )
+
+    def test_recall_tells_the_agent_to_call_it_first(self):
+        """Its whole value is being consulted before an edit, not after."""
+        recall = next(t for t in self.tools if t["name"] == "buggy_recall")
+        self.assertIn("BEFORE", recall["description"])
 
     def test_every_tool_has_a_description_and_schema(self):
         for tool in self.tools:
@@ -277,6 +282,68 @@ class TestTools(McpTestCase):
         observed = payload["certificate"]["observed"]
         self.assertTrue(observed != observed or observed in (float("inf"),
                                                              float("-inf")))
+
+
+class TestMemoryTools(McpTestCase):
+    """recall and recheck, over the wire, against a throwaway project."""
+
+    def setUp(self):
+        super().setUp()
+        self.session.initialize()
+        import shutil
+        import tempfile
+        self.root = Path(tempfile.mkdtemp(prefix="buggy-mcp-store-"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.target = self.root / "budget.py"
+        self.target.write_text(
+            "def budget_usage(spent, budget):\n"
+            "    return (spent / budget) * 100\n", encoding="utf-8")
+
+    def test_recall_is_empty_before_anything_is_recorded(self):
+        payload, is_error = self.session.call("buggy_recall",
+                                              root=str(self.root))
+        self.assertFalse(is_error)
+        self.assertEqual(payload["known"], 0)
+        self.assertIn("nothing recorded", payload["note"])
+
+    def test_investigate_records_only_when_asked(self):
+        """A tool inspecting code should not write files uninvited."""
+        self.session.call("buggy_investigate", function="budget_usage",
+                          file=str(self.target), budget=120)
+        self.assertFalse((self.root / ".buggy").exists())
+
+        payload, _ = self.session.call(
+            "buggy_investigate", function="budget_usage",
+            file=str(self.target), budget=120, record=True)
+        self.assertIn("recorded", payload)
+        self.assertTrue((self.root / ".buggy").exists())
+
+    def test_recall_then_recheck_follows_the_code(self):
+        self.session.call("buggy_investigate", function="budget_usage",
+                          file=str(self.target), budget=120, record=True)
+
+        payload, _ = self.session.call("buggy_recall", root=str(self.root))
+        self.assertEqual(payload["known"], 1)
+        self.assertEqual(payload["findings"][0]["reproduce"],
+                         "budget_usage(0, 0)")
+
+        payload, _ = self.session.call("buggy_recheck", root=str(self.root))
+        self.assertEqual(payload["results"][0]["outcome"], "still_failing")
+
+        self.target.write_text(
+            "def budget_usage(spent, budget):\n"
+            "    if budget == 0:\n        return 0.0\n"
+            "    return (spent / budget) * 100\n", encoding="utf-8")
+        payload, _ = self.session.call("buggy_recheck", root=str(self.root))
+        self.assertEqual(payload["results"][0]["outcome"], "fixed")
+        self.assertEqual(payload["regressions"], 0)
+
+        self.target.write_text(
+            "def budget_usage(spent, budget):\n"
+            "    return (spent / budget) * 100\n", encoding="utf-8")
+        payload, _ = self.session.call("buggy_recheck", root=str(self.root))
+        self.assertEqual(payload["regressions"], 1)
+        self.assertIn("failing again", payload["note"])
 
 
 class TestErrorHandling(McpTestCase):

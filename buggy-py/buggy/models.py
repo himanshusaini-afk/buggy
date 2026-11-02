@@ -2,6 +2,12 @@
 
 Stdlib dataclasses rather than pydantic, so the package has no dependencies and
 installs on any supported Python.
+
+Named models.py rather than types.py on purpose. A module called `types` inside
+a package shadows the standard library's `types` whenever the package directory
+itself lands on sys.path, which Python does for any script run by file path.
+The failure is baffling when it happens: `import argparse` breaks, because
+`argparse` imports `re`, which imports `types`.
 """
 
 from __future__ import annotations

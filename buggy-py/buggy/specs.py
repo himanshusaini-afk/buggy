@@ -25,7 +25,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from .types import ConditionResult, Verdict
+from .models import ConditionResult, Verdict
 
 __all__ = [
     "SAFE_NAMES",

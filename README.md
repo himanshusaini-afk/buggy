@@ -31,10 +31,12 @@ execution reuses one worker process instead of spawning an interpreter per
 input. On the seven functions in `examples/expense-api` it proves 4 defects in
 0.3 s where this implementation proves 3 in 494 s.
 
-It is **early**: proving, repair and an MCP server work and are tested, while
-persistence is not written yet. Its README states exactly what runs. For the
-Watchlist, the retrospective or the capability advisor, use this
-implementation.
+It is **early**, but proving, repair, recording and an MCP server work and are
+tested; its README states exactly what runs. Its memory is deliberately
+narrower than the Watchlist here: it stores the failing call rather than a
+prose lesson, so `buggy recheck` answers by re-running it, and
+`buggy export-tests` turns proven defects into pytest cases. There is no
+cross-project index and no generated steering files.
 
 Its repair step is worth a look regardless. Rather than scoring patches for
 overfitting, it applies each one and re-runs the code: does it fix the proven

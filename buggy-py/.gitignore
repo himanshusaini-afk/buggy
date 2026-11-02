@@ -22,3 +22,6 @@ env/
 .ruff_cache/
 .coverage
 htmlcov/
+
+# Recorded findings for this project (buggy investigate --record)
+.buggy/

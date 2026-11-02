@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from buggy.prove import Config, investigate
-from buggy.types import OracleKind, ReceiverKind
+from buggy.models import OracleKind, ReceiverKind
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample.py"
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "expense-api" / "src"

@@ -43,6 +43,7 @@ from .inspection import (
 )
 from .prove import Config, investigate
 from .repair import propose
+from .store import Store
 
 SERVER_NAME = "buggy"
 
@@ -122,6 +123,13 @@ TOOLS: list[dict[str, Any]] = [
                 "function": _FUNCTION, "file": _FILE,
                 "preconditions": _PRE, "postconditions": _POST,
                 "budget": _BUDGET, "timeout": _TIMEOUT,
+                "record": {
+                    "type": "boolean",
+                    "description": "Store a proven defect in .buggy/ so it can "
+                                   "be re-run later with buggy_recheck. "
+                                   "Default false; a tool inspecting code "
+                                   "should not write files uninvited.",
+                },
                 "receiver": {
                     "type": "string",
                     "description": "Expression building the object an instance "
@@ -151,6 +159,49 @@ TOOLS: list[dict[str, Any]] = [
                 "budget": _BUDGET, "timeout": _TIMEOUT,
             },
             "required": ["function", "file"],
+        },
+    },
+    {
+        "name": "buggy_recall",
+        "description": (
+            "Report what is already known about a function: defects previously "
+            "proven against it, whether each was later observed fixed, and "
+            "whether any came back. Call this BEFORE editing a risky function, "
+            "so a defect that was already fixed once is not reintroduced. "
+            "Answers come from stored triggers that can be re-run, not from "
+            "remembered advice."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "function": {"type": "string",
+                             "description": "Function to look up. Omit to list "
+                                            "everything recorded."},
+                "root": {"type": "string",
+                         "description": "Project root holding .buggy/. "
+                                        "Defaults to the current directory."},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "buggy_recheck",
+        "description": (
+            "Re-run every recorded trigger and report what changed: still "
+            "failing, now fixed, regressed, or unreachable because the code "
+            "moved. 'regressed' means a defect that had been observed fixed is "
+            "failing again, which is the signal worth acting on. Use this after "
+            "making changes, or to decide whether a fix held."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "function": {"type": "string",
+                             "description": "Limit to one function."},
+                "root": {"type": "string"},
+                "timeout": _TIMEOUT,
+            },
+            "required": [],
         },
     },
     {
@@ -316,7 +367,21 @@ def tool_investigate(args: dict[str, Any]) -> dict[str, Any]:
         postconditions=args.get("postconditions"),
         config=_config(args),
     )
-    return _report_payload(report)
+    payload = _report_payload(report)
+    if args.get("record") and report.certificate is not None:
+        with Store(path.parent) as store:
+            finding, regression = store.record(
+                report.certificate,
+                preconditions=args.get("preconditions"),
+                postconditions=args.get("postconditions"))
+            payload["recorded"] = {"id": finding.id,
+                                   "times_seen": finding.times_seen,
+                                   "regression": regression}
+            if regression:
+                payload["recorded"]["note"] = (
+                    "this defect had been recorded as fixed and is failing "
+                    "again")
+    return payload
 
 
 def tool_repair(args: dict[str, Any]) -> dict[str, Any]:
@@ -366,6 +431,58 @@ def tool_repair(args: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _finding_payload(finding: Any) -> dict[str, Any]:
+    return {
+        "id": finding.id,
+        "function": finding.function,
+        "file": finding.file,
+        "status": finding.status,
+        "broke": finding.rule,
+        "reproduce": finding.reproduce(),
+        "times_seen": finding.times_seen,
+        "first_seen": finding.first_seen,
+        "last_seen": finding.last_seen,
+    }
+
+
+def tool_recall(args: dict[str, Any]) -> dict[str, Any]:
+    with Store(Path(args.get("root") or ".").resolve()) as store:
+        if not store.exists():
+            return {"known": 0, "findings": [],
+                    "note": "nothing recorded for this project yet; pass "
+                            "record=true to buggy_investigate to start"}
+        found = store.findings(function=args.get("function"))
+        summary = store.summary()
+        return {
+            "known": len(found),
+            "findings": [_finding_payload(f) for f in found],
+            "regressed": summary["regressed"],
+            "note": ("a 'regressed' finding was observed fixed and is failing "
+                     "again" if summary["regressed"] else None),
+        }
+
+
+def tool_recheck(args: dict[str, Any]) -> dict[str, Any]:
+    with Store(Path(args.get("root") or ".").resolve()) as store:
+        if not store.exists():
+            return {"checked": 0, "results": [], "regressions": 0,
+                    "note": "nothing recorded to recheck"}
+        results = store.recheck(timeout=float(args.get("timeout") or 2.0),
+                                function=args.get("function"))
+        regressions = [r for r in results if r.is_regression]
+        return {
+            "checked": len(results),
+            "regressions": len(regressions),
+            "results": [
+                {**_finding_payload(r.finding), "outcome": r.outcome,
+                 "detail": r.detail}
+                for r in results
+            ],
+            "note": (f"{len(regressions)} defect(s) that had been fixed are "
+                     "failing again" if regressions else None),
+        }
+
+
 def tool_scan(args: dict[str, Any]) -> dict[str, Any]:
     path = _target_file(args)
     source = path.read_text(encoding="utf-8")
@@ -403,6 +520,8 @@ HANDLERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "buggy_investigate": tool_investigate,
     "buggy_repair": tool_repair,
     "buggy_scan": tool_scan,
+    "buggy_recall": tool_recall,
+    "buggy_recheck": tool_recheck,
 }
 
 

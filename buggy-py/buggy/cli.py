@@ -27,7 +27,8 @@ from .inspection import (
 )
 from .prove import Config, investigate
 from .repair import propose
-from .types import Report
+from .store import Store, to_pytest
+from .models import Report
 
 # --- Presentation ---
 
@@ -222,10 +223,30 @@ def cmd_investigate(args: argparse.Namespace) -> int:
         args.file, args.function,
         preconditions=args.pre, postconditions=args.post, config=config,
     )
+    recorded = None
+    if args.record and report.certificate is not None:
+        with Store(Path(args.file).resolve().parent) as store:
+            finding, regression = store.record(
+                report.certificate,
+                preconditions=args.pre, postconditions=args.post)
+            recorded = (finding, regression)
+
     if args.json:
-        _dump(report)
+        payload = dataclasses.asdict(report)
+        if recorded:
+            payload["recorded"] = {"id": recorded[0].id,
+                                   "regression": recorded[1]}
+        _dump(payload)
     else:
         _print_report(report, args.verbose)
+        if recorded:
+            finding, regression = recorded
+            print(f"  recorded as {paint('cyan', finding.id)}"
+                  + paint("dim", f"  (seen {finding.times_seen}x)"))
+            if regression:
+                print("  " + paint("red", "REGRESSION") +
+                      ": this was recorded as fixed and is failing again.")
+            print()
     # A proven defect is a finding, not a failure of the tool, so exit 0 unless
     # we could not do the work at all.
     return 1 if report.status == "skipped" else 0
@@ -305,6 +326,125 @@ def cmd_repair(args: argparse.Namespace) -> int:
     print("  Nothing was written to your file. Apply a fix yourself, or review "
           "the diff above.")
     print()
+    return 0
+
+
+_STORE_STYLE = {"open": "red", "fixed": "green", "regressed": "red",
+                "unreachable": "yellow", "still_failing": "red"}
+
+
+def _store(args: argparse.Namespace) -> Store:
+    return Store(Path(getattr(args, "root", ".")).resolve())
+
+
+def cmd_findings(args: argparse.Namespace) -> int:
+    with _store(args) as store:
+        if not store.exists():
+            message = ("no defects recorded yet. Run 'buggy investigate "
+                       "... --record' first.")
+            if args.json:
+                _dump({"total": 0, "findings": [], "note": message})
+            else:
+                print(f"\n  {message}\n")
+            return 0
+
+        found = store.findings(status=args.status, function=args.function)
+        summary = store.summary()
+
+        if args.json:
+            _dump({**summary, "findings": found})
+            return 0
+
+        print()
+        print(paint("bold", f"  {summary['total']} recorded defect(s)")
+              + paint("dim", f"  {summary['database']}"))
+        print(paint("dim", "  " + "-" * 70))
+        for f in found:
+            style = _STORE_STYLE.get(f.status, "dim")
+            print(f"  {paint(style, f'[{f.status}]'):<20} "
+                  f"{paint('cyan', f.reproduce())}")
+            print(paint("dim", f"      {f.rule}"))
+            print(paint("dim", f"      {f.id}  seen {f.times_seen}x, "
+                               f"last {f.last_seen[:19]}"))
+        if summary["regressed"]:
+            print()
+            print("  " + paint("red", f"{summary['regressed']} regressed")
+                  + ": proven again after being recorded as fixed.")
+        print()
+        print(paint("dim", "  'buggy recheck' re-runs these. "
+                           "'buggy export-tests' turns them into pytest cases."))
+        print()
+    return 0
+
+
+def cmd_recheck(args: argparse.Namespace) -> int:
+    with _store(args) as store:
+        if not store.exists():
+            if args.json:
+                _dump({"checked": 0, "results": []})
+            else:
+                print("\n  nothing recorded to recheck.\n")
+            return 0
+
+        results = store.recheck(timeout=args.timeout, function=args.function,
+                                python=args.python)
+        if args.json:
+            _dump({"checked": len(results), "results": results})
+            return 0
+
+        print()
+        print(paint("bold", f"  rechecked {len(results)} recorded defect(s)"))
+        print(paint("dim", "  " + "-" * 70))
+        counts: dict[str, int] = {}
+        for r in results:
+            counts[r.outcome] = counts.get(r.outcome, 0) + 1
+            style = _STORE_STYLE.get(r.outcome, "dim")
+            print(f"  {paint(style, f'[{r.outcome}]'):<22} "
+                  f"{paint('cyan', r.finding.reproduce())}")
+            if r.detail:
+                print(paint("dim", f"      {r.detail}"))
+        print(paint("dim", "  " + "-" * 70))
+        print("  " + ", ".join(f"{n} {name}" for name, n in sorted(counts.items())))
+
+        regressions = [r for r in results if r.is_regression]
+        if regressions:
+            print()
+            print("  " + paint("red", f"{len(regressions)} REGRESSION(S)")
+                  + ": these were fixed and are failing again.")
+        print()
+
+        # A regression is the one outcome worth failing a build over.
+        return 1 if regressions else 0
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    with _store(args) as store:
+        if not store.exists():
+            warn("nothing recorded to export.")
+            return 1
+        found = store.findings(status=args.status)
+        if not found:
+            warn("no findings match; nothing written.")
+            return 1
+        text = to_pytest(found)
+
+    if args.output:
+        target = Path(args.output)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        if args.json:
+            _dump({"written": str(target), "tests": len(found)})
+        else:
+            print(f"\n  wrote {len(found)} test(s) to "
+                  f"{paint('cyan', str(target))}")
+            print(paint("dim", "  Each asserts the failure is gone, so the file "
+                               "passes once the defects are fixed."))
+            print()
+    else:
+        # The generated module is data, so it goes to stdout where it can be
+        # piped; the note about it goes to stderr.
+        print(text)
+        warn(f"{len(found)} test(s) generated. Redirect to a file, or use -o.")
     return 0
 
 
@@ -412,6 +552,9 @@ def build_parser() -> argparse.ArgumentParser:
                        help="precondition; repeatable")
     p_inv.add_argument("--post", action="append", default=[], metavar="EXPR",
                        help="postcondition; repeatable")
+    p_inv.add_argument("--record", action="store_true",
+                       help="store a proven defect in .buggy/ so it can be "
+                            "re-run later with 'buggy recheck'")
     shared(p_inv)
     search_opts(p_inv)
     p_inv.set_defaults(handler=cmd_investigate)
@@ -425,6 +568,34 @@ def build_parser() -> argparse.ArgumentParser:
     shared(p_repair)
     search_opts(p_repair)
     p_repair.set_defaults(handler=cmd_repair)
+
+    p_findings = sub.add_parser(
+        "findings", help="list defects recorded in this project")
+    p_findings.add_argument("--status", default=None,
+                            choices=["open", "fixed", "regressed", "unreachable"])
+    p_findings.add_argument("--function", default=None)
+    p_findings.add_argument("--root", default=".",
+                            help="project root holding .buggy/ (default: cwd)")
+    shared(p_findings)
+    p_findings.set_defaults(handler=cmd_findings)
+
+    p_recheck = sub.add_parser(
+        "recheck", help="re-run every recorded trigger and report what changed")
+    p_recheck.add_argument("--function", default=None)
+    p_recheck.add_argument("--root", default=".")
+    p_recheck.add_argument("--timeout", type=float, default=2.0, metavar="S")
+    p_recheck.add_argument("--python", default=None, metavar="PATH")
+    shared(p_recheck)
+    p_recheck.set_defaults(handler=cmd_recheck)
+
+    p_export = sub.add_parser(
+        "export-tests", help="write recorded defects out as pytest cases")
+    p_export.add_argument("-o", "--output", default=None, metavar="PATH",
+                          help="file to write (default: stdout)")
+    p_export.add_argument("--status", default=None)
+    p_export.add_argument("--root", default=".")
+    shared(p_export)
+    p_export.set_defaults(handler=cmd_export)
 
     p_scan = sub.add_parser("scan", help="investigate every function in a file")
     p_scan.add_argument("file")

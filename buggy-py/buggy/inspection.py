@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import ast
 
-from .types import ClassInfo, FunctionInfo, Parameter, ParamKind, Signature
+from .models import ClassInfo, FunctionInfo, Parameter, ParamKind, Signature
 
 __all__ = [
     "find_functions",

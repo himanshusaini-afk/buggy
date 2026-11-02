@@ -11,7 +11,7 @@ from buggy.generate import (
     generate_arguments,
     values_for_annotation,
 )
-from buggy.types import Parameter, ParamKind, Signature
+from buggy.models import Parameter, ParamKind, Signature
 
 
 def _signature(*annotations: str | None) -> Signature:

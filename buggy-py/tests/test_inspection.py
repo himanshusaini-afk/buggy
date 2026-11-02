@@ -13,7 +13,7 @@ from buggy.inspection import (
     function_source,
     non_code_lines,
 )
-from buggy.types import ParamKind
+from buggy.models import ParamKind
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample.py"
 

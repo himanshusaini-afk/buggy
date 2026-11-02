@@ -41,7 +41,7 @@ from .specs import (
     compile_condition,
     preconditions_hold,
 )
-from .types import (
+from .models import (
     Certificate,
     OracleKind,
     Outcome,

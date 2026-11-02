@@ -10,7 +10,7 @@ from buggy.specs import (
     build_bindings,
     compile_condition,
 )
-from buggy.types import Verdict
+from buggy.models import Verdict
 
 
 class TestPythonConditions(unittest.TestCase):

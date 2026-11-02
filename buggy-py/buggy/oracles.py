@@ -15,7 +15,7 @@ import math
 from typing import Any
 
 from .specs import Condition, build_bindings
-from .types import (
+from .models import (
     SEVERITY_NORMAL,
     SEVERITY_PROPAGATED,
     SEVERITY_STATED,

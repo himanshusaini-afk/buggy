@@ -10,7 +10,9 @@
       "autoApprove": [
         "buggy_functions",
         "buggy_investigate",
-        "buggy_scan"
+        "buggy_scan",
+        "buggy_recall",
+        "buggy_recheck"
       ]
     },
     "buggy-from-source": {
@@ -24,7 +26,9 @@
       "autoApprove": [
         "buggy_functions",
         "buggy_investigate",
-        "buggy_scan"
+        "buggy_scan",
+        "buggy_recall",
+        "buggy_recheck"
       ]
     }
   }

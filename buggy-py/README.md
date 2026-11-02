@@ -25,8 +25,8 @@ A native Python reimplementation of the TypeScript original, which lives in the
 parent directory. It is not a port of that codebase; it is a rewrite of the
 third of it that runs, for reasons set out in [Why a rewrite](#why-a-rewrite).
 
-**Status: early.** Proving, repair and the MCP server work and are tested.
-Persistence is not written yet. See
+**Status: early.** Proving, repair, recording and the MCP server work and are
+tested. See
 [What exists today](#what-exists-today) - that section is the project's
 credibility and is kept honest.
 
@@ -92,6 +92,9 @@ interpreter internals.
 | `buggy investigate <name> -f <file>` | investigates one function |
 | `buggy repair <name> -f <file>` | investigates, then proposes fixes and verifies each by execution |
 | `buggy scan <file>` | investigates every supported function in a file |
+| `buggy findings` | lists defects recorded in this project |
+| `buggy recheck` | re-runs every recorded trigger and reports what changed |
+| `buggy export-tests` | writes recorded defects out as pytest cases |
 | `buggy-mcp` | runs as an MCP server over stdio, for use from an agent |
 
 Useful flags: `--pre` / `--post` (repeatable), `--budget N` (inputs to execute,
@@ -225,6 +228,57 @@ guard reaches through `self`.
 
 **Nothing is ever written to your file.** Patches are returned as data.
 
+### Remembering what was found
+
+A certificate names an exact call that failed, which means it can be run again.
+So instead of keeping notes, `buggy` keeps the triggers and re-executes them:
+
+```bash
+buggy investigate budget_usage -f budget.py --record   # store the certificate
+buggy recheck                                          # re-run every trigger
+buggy export-tests -o tests/test_regressions.py        # emit them as pytest
+```
+
+`recheck` reports one of four outcomes per finding, each from an actual
+execution rather than from history:
+
+| outcome | meaning |
+|---|---|
+| `still_failing` | the defect is still there |
+| `fixed` | it was observed to pass |
+| `regressed` | it had been observed fixed and is failing again |
+| `unreachable` | the file or function is gone, so the trigger cannot be run |
+
+`regressed` is the outcome worth wiring into CI, and `recheck` exits non-zero
+when it finds one. It is **sticky**: a finding stays regressed until it actually
+passes again, because downgrading it on the next run would let a build go green
+while the defect is still there. `unreachable` is reported rather than counted
+as fixed, since a deleted function is not a repaired one.
+
+`export-tests` turns findings into ordinary pytest cases that assert the failure
+is *gone*, so the file passes once the defects are fixed:
+
+```python
+def test_budget_usage_crash_b0b907():
+    """must not raise ZeroDivisionError
+
+    Proven 2026-10-30. Trigger: budget_usage(0, 0)
+    """
+    try:
+        budget_usage(0, 0)
+    except ZeroDivisionError as exc:
+        pytest.fail(f"budget_usage still raises ZeroDivisionError: {exc}")
+```
+
+Asserting the fix rather than the bug is deliberate: a test asserting the defect
+still exists has to be deleted when it is fixed, which is how a regression suite
+rots.
+
+Recording is **opt-in** (`--record`), and the database lives at
+`.buggy/findings.db` in the project. A tool that inspects your code should not
+start writing files to it uninvited. Add `.buggy/` to your `.gitignore`, or
+commit it to share findings with the team.
+
 ### As an MCP server
 
 `buggy-mcp` speaks MCP over stdio, so an agent can prove and repair defects
@@ -243,8 +297,11 @@ while it works. Copy an entry from
 }
 ```
 
-Four tools: `buggy_functions`, `buggy_investigate`, `buggy_repair` and
-`buggy_scan`, mirroring the commands above. Each returns both human-readable
+Six tools: `buggy_functions`, `buggy_investigate`, `buggy_repair`,
+`buggy_scan`, `buggy_recall` and `buggy_recheck`, mirroring the commands
+above. `buggy_recall` is the one to reach for before editing a risky
+function: it reports defects already proven against it and whether any
+came back. Each returns both human-readable
 text and `structuredContent`, and a certificate always carries a `reproduce`
 field holding the exact call to paste into a REPL.
 
@@ -387,8 +444,14 @@ Wired into the live pipeline and tested:
 
 Not written yet, and not implied anywhere in the output:
 
-- **persistence** - nothing is written to disk. No graph database, no watchlist,
-  no retrospective, no capability advisor.
+- **a cross-project memory.** The TypeScript implementation promoted lessons to
+  a sanitised index in your home directory, shared across every project. Left
+  out: it writes outside the project for a weak signal, and a trigger from
+  another codebase cannot be re-run here, so none of its claims could be
+  checked.
+- **generating hooks or steering files from defect history.** That is config
+  synthesised from thin evidence. `buggy export-tests` serves the same wish
+  with something specific and checkable.
 - **resources and prompts** over MCP. `resources/list` and `prompts/list`
   answer with empty lists so clients that probe them do not error, but nothing
   is exposed that way.
@@ -415,7 +478,7 @@ python3 -m unittest discover -s tests -t .    # no installs needed
 pytest
 ```
 
-169 tests, all passing, about 34 seconds. `tests/test_prove.py` includes the
+197 tests, all passing, about 38 seconds. `tests/test_prove.py` includes the
 parity baseline against the recorded TypeScript run and is skipped if the
 example sources are absent. `tests/test_repair.py` injects a deliberately
 sabotaged patch and a deliberately overfit one, to check that the evidence

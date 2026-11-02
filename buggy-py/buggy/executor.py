@@ -25,7 +25,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from .types import ExecResult, Outcome, Receiver
+from .models import ExecResult, Outcome, Receiver
 
 __all__ = ["Executor", "ExecutorError"]
 
@@ -96,11 +96,28 @@ class Executor:
 # --- Lifecycle ---
 
     def _spawn(self) -> _Worker:
+        # The import path is passed as a literal inside -c rather than through
+        # PYTHONPATH. PYTHONPATH is colon-separated on POSIX, so any
+        # installation path containing a colon silently became two directories
+        # that do not exist; this checkout lives under ".../D:/Projects/..."
+        # and hit exactly that. A repr'd string argument is immune to it, and
+        # to spaces and quotes.
+        #
+        # Spawning the worker by file path would be simpler but is unsafe:
+        # Python prepends a script's own directory to sys.path, and this
+        # package contains types.py, which then shadows the standard library's
+        # `types` and breaks `import argparse` in the child.
+        parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        bootstrap = (
+            "import sys;"
+            f"sys.path.insert(0, {parent!r});"
+            "from buggy import _worker;"
+            "sys.exit(_worker.main())"
+        )
         cmd = [
             self._python,
             "-u",
-            "-m",
-            "buggy._worker",
+            "-c", bootstrap,
             "--cpu-seconds", str(self._cpu_seconds),
             "--fsize-mb", str(self._fsize_mb),
         ]
@@ -108,11 +125,6 @@ class Executor:
             cmd += ["--address-mb", str(self._address_mb)]
 
         env = dict(os.environ)
-        # Make the package importable without requiring installation, and keep
-        # our path first so a target module named `buggy` cannot shadow it.
-        package_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        existing = env.get("PYTHONPATH")
-        env["PYTHONPATH"] = package_root + (os.pathsep + existing if existing else "")
         env.pop("PYTHONSTARTUP", None)
 
         try:

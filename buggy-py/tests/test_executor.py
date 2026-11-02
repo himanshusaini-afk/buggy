@@ -7,7 +7,7 @@ import time
 import unittest
 
 from buggy.executor import Executor, ExecutorError
-from buggy.types import Outcome
+from buggy.models import Outcome
 
 TARGET = '''
 import sys
