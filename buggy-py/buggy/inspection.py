@@ -67,6 +67,18 @@ def _annotation_text(node: ast.expr | None) -> str | None:
         return None
 
 
+def _is_empty_body(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """Whether the body is only a docstring, `...` or `pass`."""
+    for statement in node.body:
+        if isinstance(statement, ast.Pass):
+            continue
+        if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Constant):
+            if statement.value.value is Ellipsis or isinstance(statement.value.value, str):
+                continue
+        return False
+    return True
+
+
 def _decorator_names(node: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[str, ...]:
     names: list[str] = []
     for dec in node.decorator_list:
@@ -208,6 +220,16 @@ def find_functions(source: str, filename: str = "<target>") -> list[FunctionInfo
                 else:
                     kind = "async_function" if is_async else "function"
 
+                # An overload signature or an empty placeholder is not the
+                # implementation. click declares get_current_context three
+                # times, two of them @t.overload stubs, and investigating a
+                # stub reports the real function's documented RuntimeError as
+                # a defect three times over.
+                is_stub = (
+                    any(d.split(".")[-1] == "overload" for d in decorators)
+                    or _is_empty_body(child)
+                )
+
                 qualified = ".".join(class_stack + (child.name,))
 
                 found.append(
@@ -222,6 +244,7 @@ def find_functions(source: str, filename: str = "<target>") -> list[FunctionInfo
                         needs_receiver=is_method and not (is_static or is_class_method),
                         decorators=decorators,
                         is_property=is_property,
+                        is_stub=is_stub,
                         owner=".".join(class_stack) if class_stack else None,
                         is_dunder=(
                             child.name.startswith("__") and child.name.endswith("__")
@@ -459,6 +482,11 @@ def describe_unsupported(
         return (
             "defined inside another function, so it is not reachable by name "
             "after the module loads"
+        )
+    if info.is_stub:
+        return (
+            "a stub with no body: a typing.overload signature or a "
+            "placeholder, not the real implementation"
         )
     if info.is_dunder:
         return (

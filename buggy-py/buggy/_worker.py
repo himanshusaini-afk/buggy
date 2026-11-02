@@ -45,6 +45,27 @@ def _redirect_target_output() -> Any:
     return os.fdopen(private_fd, "w", buffering=1, encoding="utf-8")
 
 
+def _isolate_target_input() -> Any:
+    """Take a private copy of stdin, then make the real one empty.
+
+    Returns a readable stream carrying the protocol. The mirror image of
+    `_redirect_target_output`, and more than tidiness: the protocol arrives on
+    stdin, so a target calling `input()` would consume JSON-RPC bytes and
+    desynchronise the session. Found by running over click, where `prompt`
+    reads stdin directly.
+
+    Pointing fd 0 at /dev/null also turns an interactive function from a hang
+    into an immediate EOFError, which is a far more useful result than a
+    timeout the tool would report as a defect.
+    """
+    private_fd = os.dup(0)
+    devnull_fd = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(devnull_fd, 0)
+    os.close(devnull_fd)
+    sys.stdin = open(0, "r", closefd=False)  # noqa: SIM115
+    return os.fdopen(private_fd, "r", encoding="utf-8")
+
+
 def _apply_limits(cpu_seconds: int | None, fsize_mb: int | None, address_mb: int | None) -> dict:
     """Lower our own resource limits. Reports what actually took effect.
 
@@ -197,6 +218,7 @@ def main() -> int:
     args = parser.parse_args()
 
     out = _redirect_target_output()
+    protocol_in = _isolate_target_input()
     limits = _apply_limits(args.cpu_seconds, args.fsize_mb, args.address_mb)
 
     def emit(payload: dict) -> None:
@@ -209,7 +231,7 @@ def main() -> int:
     namespace: dict[str, Any] = {}
     loaded = False
 
-    for line in sys.stdin:
+    for line in protocol_in:
         line = line.strip()
         if not line:
             continue

@@ -97,6 +97,10 @@ class FunctionInfo:
     """An instance method, whose first argument is `self`."""
     decorators: tuple[str, ...] = ()
     is_property: bool = False
+    is_stub: bool = False
+    """A `typing.overload` signature or a body of only `...`/`pass`. Not the
+    real implementation, so calling it proves nothing about the code that
+    runs."""
     owner: str | None = None
     """Qualified name of the enclosing class, if any."""
     is_dunder: bool = False

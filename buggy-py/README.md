@@ -158,8 +158,32 @@ a harness artifact indistinguishable from a defect.
 
 Still out of reach, each refused with a reason rather than silently reported
 clean: special methods (`__init__`, `__add__`, ...), properties, `async` functions,
-and functions nested inside other functions. On the stdlib's `statistics`
+functions nested inside other functions, and `typing.overload` signatures,
+which are not the implementation that runs. On the stdlib's `statistics`
 module, 54 of 81 functions are investigable.
+
+### Measured on a real project
+
+Run over [click](https://github.com/pallets/click) 8.5.0, an unfamiliar
+pure-Python package of 17 modules and 12,674 lines, 16 of them using relative
+imports:
+
+| | |
+|---|---|
+| functions investigated | 365 |
+| wall clock | 39 s |
+| crashes in buggy itself | 0 |
+| findings | 34 strong, 91 weak |
+
+The one module that would not load is `_winconsole.py`, which asserts
+`sys.platform == "win32"` at import time. Its 15 functions are reported as
+unanalysable rather than clean, which is the right answer on a Mac.
+
+Two limitations that run shows plainly. Receiver construction fails for classes
+with demanding constructors (click's `Context` and `Option`), where `--receiver`
+is the answer. And on code with no specifications most findings are weak by
+design: a function rejecting bad input, or one handed an argument of the wrong
+type. Preconditions are what turn that into signal.
 
 ### Programmatic
 
@@ -499,6 +523,12 @@ makes a finding reproducible and also what makes this a real consideration. Run
 it on a clean working tree, and prefer `--receiver` to pin the construction when
 a class touches the outside world.
 
+The target's stdin and stdout are both pointed at `/dev/null`, so a `print`
+goes nowhere and an `input()` gets `EOFError` immediately rather than waiting.
+That keeps the protocol safe and stops an interactive function from looking
+like a hang, but it is not a sandbox: a function that spawns an editor or opens
+a URL will still do it.
+
 ## Tests
 
 ```bash
@@ -507,7 +537,7 @@ python3 -m unittest discover -s tests -t .    # no installs needed
 pytest
 ```
 
-216 tests, all passing, about 39 seconds. `tests/test_realcode.py` holds the
+222 tests, all passing, about 39 seconds. `tests/test_realcode.py` holds the
 regressions that only a run over real code could find, and is worth reading
 before trusting the fixture suite. `tests/test_prove.py` includes the
 parity baseline against the recorded TypeScript run and is skipped if the

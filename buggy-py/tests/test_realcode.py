@@ -14,7 +14,11 @@ import unittest
 from pathlib import Path
 
 from buggy.generate import required_keyword_arguments
-from buggy.inspection import deliberate_raises, find_function
+from buggy.inspection import (
+    deliberate_raises,
+    describe_unsupported,
+    find_function,
+)
 from buggy.models import ParamKind
 from buggy.prove import Config, investigate
 
@@ -307,6 +311,124 @@ class TestDeliberateRaises(unittest.TestCase):
         self.assertEqual(report.status, "proven")
         self.assertIn("ZeroDivisionError", report.certificate.rule)
         self.assertIsNone(report.note, "should not be ranked as weak")
+
+
+class TestTargetInputIsolation(unittest.TestCase):
+    """A target reading stdin must not be able to eat the protocol.
+
+    The protocol arrives on the worker's stdin, so a function calling `input()`
+    consumed JSON-RPC bytes and desynchronised the session. Found by running
+    over click, whose `prompt` reads stdin directly. Pointing fd 0 at /dev/null
+    also turns an interactive function from a hang into an immediate EOFError.
+    """
+
+    TARGET = (
+        "import sys\n"
+        "\n"
+        "\n"
+        "def asks(text):\n"
+        "    return input(text)\n"
+        "\n"
+        "\n"
+        "def reads_raw(n):\n"
+        "    return sys.stdin.read(n)\n"
+        "\n"
+        "\n"
+        "def readline():\n"
+        "    return sys.stdin.readline()\n"
+        "\n"
+        "\n"
+        "def add(a, b):\n"
+        "    return a + b\n"
+    )
+
+    def setUp(self):
+        from buggy.executor import Executor
+        self.executor = Executor(self.TARGET, filename="interactive.py",
+                                 timeout=2.0)
+        self.addCleanup(self.executor.close)
+
+    def test_input_raises_eof_instead_of_hanging(self):
+        from buggy.models import Outcome
+        result = self.executor.call("asks", ["name? "])
+        self.assertIs(result.outcome, Outcome.RAISED)
+        self.assertEqual(result.exception_type, "EOFError")
+
+    def test_reading_stdin_directly_sees_nothing(self):
+        self.assertEqual(self.executor.call("reads_raw", [10]).value, "")
+        self.assertEqual(self.executor.call("readline", []).value, "")
+
+    def test_the_protocol_survives_a_target_that_reads_stdin(self):
+        self.executor.call("asks", ["a? "])
+        self.executor.call("reads_raw", [100])
+        self.executor.call("readline", [])
+        result = self.executor.call("add", [2, 3])
+        self.assertEqual(result.value, 5, "protocol desynchronised")
+        self.assertEqual(self.executor.respawns, 0,
+                         "nothing should have needed replacing")
+
+
+class TestStubsAreNotImplementations(unittest.TestCase):
+    """A typing.overload signature is not the function that runs.
+
+    click declares `get_current_context` three times, two of them @t.overload
+    stubs. Investigating the stubs reported the real function's documented
+    RuntimeError as a defect three times over.
+    """
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="buggy-stub-"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.module = self.root / "overloaded.py"
+        self.module.write_text(
+            "import typing as t\n"
+            "\n"
+            "\n"
+            "@t.overload\n"
+            "def fetch(key: str) -> str: ...\n"
+            "\n"
+            "\n"
+            "@t.overload\n"
+            "def fetch(key: int) -> int:\n"
+            "    ...\n"
+            "\n"
+            "\n"
+            "def fetch(key):\n"
+            "    return {'a': 1}[key]\n"
+            "\n"
+            "\n"
+            "def placeholder(x):\n"
+            "    pass\n"
+            "\n"
+            "\n"
+            "def documented_only(x):\n"
+            '    """Not implemented yet."""\n',
+            encoding="utf-8")
+        self.source = self.module.read_text(encoding="utf-8")
+
+    def test_overload_signatures_are_marked_as_stubs(self):
+        from buggy.inspection import find_classes, find_functions
+        classes = find_classes(self.source, str(self.module))
+        fetches = [f for f in find_functions(self.source, str(self.module))
+                   if f.name == "fetch"]
+        self.assertEqual(len(fetches), 3)
+        self.assertEqual([f.is_stub for f in fetches], [True, True, False])
+        for stub in fetches[:2]:
+            self.assertIn("stub", describe_unsupported(stub, classes))
+
+    def test_the_real_implementation_is_still_investigated(self):
+        from buggy.inspection import find_classes, find_functions
+        classes = find_classes(self.source, str(self.module))
+        real = [f for f in find_functions(self.source, str(self.module))
+                if f.name == "fetch" and not f.is_stub][0]
+        self.assertIsNone(describe_unsupported(real, classes))
+
+    def test_empty_placeholders_are_stubs(self):
+        from buggy.inspection import find_functions
+        by_name = {f.name: f for f in find_functions(self.source,
+                                                     str(self.module))}
+        self.assertTrue(by_name["placeholder"].is_stub)
+        self.assertTrue(by_name["documented_only"].is_stub)
 
 
 class TestSelfHosting(unittest.TestCase):
