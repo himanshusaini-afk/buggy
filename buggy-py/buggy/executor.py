@@ -69,7 +69,11 @@ def _package_context(filename: str) -> tuple[str | None, str | None, str | None]
         return None, None, None
     path = path.resolve()
 
-    parts = [path.stem]
+    # A package's __init__.py IS the package, not a `package.__init__`
+    # submodule. Getting this wrong produced the dotted name
+    # "pygments.formatters.__init__", and the module then failed to load with
+    # KeyError on its own sys.modules entry.
+    parts = [] if path.stem == "__init__" else [path.stem]
     directory = path.parent
     # Bounded, so a directory tree full of __init__.py cannot walk to /.
     for _ in range(40):
@@ -78,12 +82,20 @@ def _package_context(filename: str) -> tuple[str | None, str | None, str | None]
         parts.insert(0, directory.name)
         directory = directory.parent
 
-    if len(parts) == 1:
+    is_init = path.stem == "__init__"
+
+    # ["foo"] and ["jinja2"] both have one element but mean different things:
+    # a loose script, and a top-level package's own __init__.py. Only the
+    # former has no package to belong to.
+    if not parts or (len(parts) == 1 and not is_init):
         # A standalone script. Its own directory still goes on the path so that
         # sibling modules it imports absolutely can be found.
         return None, None, str(path.parent)
 
-    return ".".join(parts), ".".join(parts[:-1]), str(directory)
+    dotted = ".".join(parts)
+    # For an __init__.py the package is itself, since a relative
+    # `from .thing import x` inside it resolves against the package.
+    return dotted, dotted if is_init else ".".join(parts[:-1]), str(directory)
 
 
 @dataclass
@@ -198,9 +210,13 @@ class Executor:
         self._load_error = None
 
         module, package, root = _package_context(self._filename)
+        # Only an __init__.py is a package, and only a package gets __path__.
+        is_package = Path(self._filename).name == "__init__.py"
         reply = self._request({
             "op": "load", "source": self._source, "filename": self._filename,
             "module": module, "package": package, "sys_path": root,
+            "package_path": (str(Path(self._filename).resolve().parent)
+                             if is_package else None),
         }, timeout=max(self._timeout, 10.0))
 
         if reply is None:

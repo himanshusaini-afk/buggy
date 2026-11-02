@@ -90,6 +90,12 @@ TYPE_CONFUSION_ADVICE = (
     "from valid input"
 )
 
+EMPTY_STDIN_ADVICE = (
+    "the function read standard input, which is deliberately empty here, so it "
+    "got EOFError at once rather than waiting for a reply; this says nothing "
+    "about the function and interactive code cannot be exercised this way"
+)
+
 DELIBERATE_RAISE_ADVICE = (
     "the function raises this exception on purpose for invalid input, which is "
     "its contract rather than a defect; add a precondition describing valid "
@@ -138,7 +144,13 @@ def check_crash(
     confused = is_type_confusion(result)
     on_purpose = bool(result.exception_type) and result.exception_type in deliberate
 
-    if on_purpose:
+    if result.exception_type == "EOFError":
+        # The target's stdin is /dev/null, so anything reading it gets EOFError
+        # immediately. That is the harness, not the function: click's
+        # hidden_prompt_func calls getpass and was reported as a defect for it.
+        # Still surfaced if nothing better is found, with the reason.
+        severity, advice = SEVERITY_TYPE_CONFUSION, EMPTY_STDIN_ADVICE
+    elif on_purpose:
         severity, advice = SEVERITY_TYPE_CONFUSION, DELIBERATE_RAISE_ADVICE
     elif confused:
         severity, advice = SEVERITY_TYPE_CONFUSION, TYPE_CONFUSION_ADVICE

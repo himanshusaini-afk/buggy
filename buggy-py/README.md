@@ -162,28 +162,36 @@ functions nested inside other functions, and `typing.overload` signatures,
 which are not the implementation that runs. On the stdlib's `statistics`
 module, 54 of 81 functions are investigable.
 
-### Measured on a real project
+### Measured on real projects
 
-Run over [click](https://github.com/pallets/click) 8.5.0, an unfamiliar
-pure-Python package of 17 modules and 12,674 lines, 16 of them using relative
-imports:
+Run over 34 installed packages and stdlib modules, about 243,000 lines of
+unfamiliar pure Python: click, jinja2, attrs, packaging, pygments, pyparsing,
+dateutil, idna, urllib3, requests, charset-normalizer, markupsafe, and stdlib
+modules including `statistics`, `argparse`, `dataclasses`, `ipaddress`,
+`difflib`, `configparser`, `urllib.parse` and `ast`.
 
 | | |
 |---|---|
-| functions investigated | 365 |
-| wall clock | 39 s |
-| crashes in buggy itself | 0 |
-| findings | 34 strong, 91 weak |
+| functions investigated | 3,651 |
+| wall clock | ~6 min |
+| crashes in buggy itself | **0** |
+| calls exceeding 6 s | 4 |
+| modules that would not load | 124 (3%) |
 
-The one module that would not load is `_winconsole.py`, which asserts
-`sys.platform == "win32"` at import time. Its 15 functions are reported as
-unanalysable rather than clean, which is the right answer on a Mac.
+Every one of those 124 is a real reason, not a limitation: a module that is
+Windows-only (`click._winconsole` asserts `sys.platform == "win32"`), or one
+needing an optional dependency that is not installed (`OpenSSL`, `socks`,
+`h2`). Their functions are reported unanalysable rather than clean.
 
-Two limitations that run shows plainly. Receiver construction fails for classes
-with demanding constructors (click's `Context` and `Option`), where `--receiver`
-is the answer. And on code with no specifications most findings are weak by
-design: a function rejecting bad input, or one handed an argument of the wrong
-type. Preconditions are what turn that into signal.
+Two limitations the runs show plainly. Receiver construction fails for classes
+with demanding constructors, such as click's `Context` and pyparsing's
+`ParserElement`, where `--receiver` is the answer. And on code with no
+specifications most findings are weak by design, roughly two to one: a function
+rejecting bad input, an argument of the wrong type, an interactive function
+meeting an empty stdin. Preconditions are what turn that into signal.
+
+Every fix in `tests/test_realcode.py` came from one of these runs, and none of
+them could have come from a fixture.
 
 ### Programmatic
 
@@ -537,7 +545,7 @@ python3 -m unittest discover -s tests -t .    # no installs needed
 pytest
 ```
 
-222 tests, all passing, about 39 seconds. `tests/test_realcode.py` holds the
+233 tests, all passing, about 39 seconds. `tests/test_realcode.py` holds the
 regressions that only a run over real code could find, and is worth reading
 before trusting the fixture suite. `tests/test_prove.py` includes the
 parity baseline against the recorded TypeScript run and is skipped if the

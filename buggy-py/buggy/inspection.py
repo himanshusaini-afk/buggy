@@ -394,13 +394,21 @@ def _declared_exceptions(docstring: str) -> set[str]:
 
 
 def _module_exceptions(tree: ast.Module) -> set[str]:
-    """Exception classes this module defines.
+    """Exception types this module owns: defined here, or imported from a sibling.
 
-    One of a module's own exception types coming out of one of its functions is
-    that module's contract, not an accident, even when the `raise` is in a
-    callee.
+    One of a package's own exception types coming out of one of its functions
+    is that package's contract, not an accident, even when the `raise` sits in
+    a callee.
+
+    Imports count, and only relative ones. A package almost always keeps its
+    exceptions in a dedicated module, so looking only at locally-defined
+    classes missed the common case: `click.types` raises `BadParameter` via
+    `self.fail()`, and the class lives in `click.exceptions`. Restricting this
+    to relative imports is what keeps it honest, since a name reached by
+    `from .exceptions import X` is by construction part of the same package.
     """
     found: set[str] = set()
+
     for node in tree.body:
         if not isinstance(node, ast.ClassDef):
             continue
@@ -410,6 +418,18 @@ def _module_exceptions(tree: ast.Module) -> set[str]:
         if any(_EXCEPTION_BASE.search(b) for b in bases) \
                 or _EXCEPTION_BASE.search(node.name):
             found.add(node.name)
+
+    for node in ast.walk(tree):
+        # `level > 0` means a relative import: from . or from .. onwards.
+        if isinstance(node, ast.ImportFrom) and node.level > 0:
+            for alias in node.names:
+                name = alias.asname or alias.name
+                # Class-like names only, which excludes imported functions and
+                # submodules. A match still has to be the runtime class name of
+                # a raised exception, so this stays narrow.
+                if name[:1].isupper():
+                    found.add(name)
+
     return found
 
 

@@ -24,6 +24,7 @@ import json
 import os
 import sys
 import traceback
+from types import ModuleType
 from typing import Any
 
 PROTOCOL_VERSION = 1
@@ -261,12 +262,45 @@ def main() -> int:
             root = request.get("sys_path")
             if root and root not in sys.path:
                 sys.path.insert(0, root)
-            namespace = {
-                "__name__": request.get("module") or "__buggy_target__",
-                "__file__": filename,
-            }
+            module_name = request.get("module") or "__buggy_target__"
+            package_name = request.get("package")
+
+            # Load the real package before shadowing one of its modules.
+            # Registering our half-built module first breaks every sibling
+            # with a circular import back to it - `click.types` does
+            # `from .core import Parameter`, and `click.core` imports
+            # `click.types` - which took module load failures from 203 to
+            # 1536 across the wide set. Importing the package first means the
+            # siblings in sys.modules are the genuine ones, and only the
+            # module under test is replaced.
+            if package_name and package_name != module_name:
+                try:
+                    import importlib
+
+                    importlib.import_module(package_name)
+                except BaseException:  # noqa: BLE001
+                    # A package that will not import is the caller's problem to
+                    # hear about, which happens below when the source runs.
+                    pass
+            # Executed inside a real module object registered in sys.modules,
+            # not a bare dict. Plenty of modules reach for their own entry -
+            # `sys.modules[__name__]` is how a module installs a lazy
+            # __getattr__ or rewrites its own class - and the stdlib's
+            # calendar does exactly that, failing with
+            # KeyError: '__buggy_target__' against a bare namespace.
+            module = ModuleType(module_name)
+            module.__file__ = filename
             if request.get("package"):
-                namespace["__package__"] = request["package"]
+                module.__package__ = request["package"]
+            if request.get("package_path"):
+                # A package's __init__.py needs __path__, or an import of one
+                # of its own submodules cannot be resolved. Registering the
+                # module without it sent pygments.formatters into unbounded
+                # recursion during its own lazy-loading and killed the
+                # interpreter outright.
+                module.__path__ = [request["package_path"]]
+            sys.modules[module_name] = module
+            namespace = module.__dict__
             try:
                 code = compile(request["source"], filename, "exec")
                 exec(code, namespace)  # noqa: S102 - executing the target is the job

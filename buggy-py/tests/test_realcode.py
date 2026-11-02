@@ -19,7 +19,7 @@ from buggy.inspection import (
     describe_unsupported,
     find_function,
 )
-from buggy.models import ParamKind
+from buggy.models import OracleKind, ParamKind
 from buggy.prove import Config, investigate
 
 FAST = Config(max_executions=60, timeout=1.0)
@@ -429,6 +429,211 @@ class TestStubsAreNotImplementations(unittest.TestCase):
                                                      str(self.module))}
         self.assertTrue(by_name["placeholder"].is_stub)
         self.assertTrue(by_name["documented_only"].is_stub)
+
+
+class TestPackageContext(unittest.TestCase):
+    """How a file maps to a module name, which decides whether it can load.
+
+    Every case here was wrong at some point during a run over 243,000 lines of
+    installed packages, and each wrong answer showed up as "the module failed
+    to load" rather than as anything obviously broken.
+    """
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="buggy-ctx-"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        # _package_context resolves symlinks, and on macOS /var is a link to
+        # /private/var, so compare against the resolved form.
+        self.resolved = self.root.resolve()
+
+    def make(self, relative: str, text: str = "") -> Path:
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def context(self, path: Path):
+        from buggy.executor import _package_context
+        return _package_context(str(path))
+
+    def test_a_submodule_maps_to_package_dot_module(self):
+        self.make("shop/__init__.py")
+        module = self.make("shop/pricing.py", "def f():\n    return 1\n")
+        dotted, package, root = self.context(module)
+        self.assertEqual((dotted, package), ("shop.pricing", "shop"))
+        self.assertEqual(root, str(self.resolved))
+
+    def test_a_packages_init_is_the_package_itself(self):
+        """Not `shop.__init__`. That name produced a KeyError on the module's
+        own sys.modules entry for pygments.formatters."""
+        init = self.make("shop/__init__.py", "def f():\n    return 1\n")
+        dotted, package, _ = self.context(init)
+        self.assertEqual((dotted, package), ("shop", "shop"))
+
+    def test_a_nested_packages_init(self):
+        self.make("shop/__init__.py")
+        init = self.make("shop/eu/__init__.py", "def f():\n    return 1\n")
+        dotted, package, _ = self.context(init)
+        self.assertEqual((dotted, package), ("shop.eu", "shop.eu"))
+
+    def test_a_loose_script_belongs_to_no_package(self):
+        """`['foo']` and `['jinja2']` are both one element but mean different
+        things: a script, and a top-level package's own __init__."""
+        script = self.make("loose.py", "def f():\n    return 1\n")
+        dotted, package, root = self.context(script)
+        self.assertIsNone(dotted)
+        self.assertIsNone(package)
+        self.assertEqual(root, str(self.resolved))
+
+
+class TestModuleSelfReference(unittest.TestCase):
+    """Modules that reach for their own sys.modules entry must load.
+
+    `sys.modules[__name__]` is how a module installs a lazy __getattr__ or
+    rewrites its own class, and the stdlib's calendar does exactly that. It
+    failed with KeyError: '__buggy_target__' against a bare namespace.
+    """
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="buggy-selfref-"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+    def test_a_module_can_look_itself_up(self):
+        module = self.root / "selfref.py"
+        module.write_text(
+            "import sys\n"
+            "\n"
+            "_me = sys.modules[__name__]\n"
+            "_me.MARKER = 7\n"
+            "\n"
+            "\n"
+            "def divide(a, b):\n"
+            "    return a / b\n",
+            encoding="utf-8")
+        report = investigate(module, "divide", config=FAST)
+        self.assertNotEqual(report.status, "skipped", report.note)
+        self.assertEqual(report.status, "proven")
+
+    def test_a_sibling_with_a_circular_import_still_resolves(self):
+        """Registering our module before the real package loaded broke every
+        sibling importing back into it, taking load failures from 203 to 1536.
+        The real package is imported first now."""
+        package = self.root / "circ"
+        package.mkdir()
+        (package / "__init__.py").write_text(
+            "from .a import alpha\nfrom .b import beta\n", encoding="utf-8")
+        (package / "a.py").write_text(
+            "from .b import beta\n"
+            "\n"
+            "\n"
+            "def alpha(x):\n"
+            "    return beta(x) / x\n",
+            encoding="utf-8")
+        (package / "b.py").write_text(
+            "def beta(x):\n    return x * 2\n", encoding="utf-8")
+
+        report = investigate(package / "a.py", "alpha", config=FAST)
+        self.assertNotEqual(report.status, "skipped", report.note)
+        self.assertEqual(report.status, "proven")
+        self.assertIn("ZeroDivisionError", report.certificate.rule)
+
+
+class TestPackageOwnedExceptions(unittest.TestCase):
+    """A package's exception type is its contract wherever it is defined.
+
+    Looking only at locally-defined classes missed the common case: a package
+    keeps its exceptions in a dedicated module, so `click.types` raising
+    `BadParameter` from `click.exceptions` via `self.fail()` was reported as a
+    defect five times over.
+    """
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="buggy-pkgexc-"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        package = self.root / "shop"
+        package.mkdir()
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        (package / "errors.py").write_text(
+            "class BadInput(Exception):\n    pass\n", encoding="utf-8")
+        self.module = package / "convert.py"
+        self.module.write_text(
+            "from .errors import BadInput\n"
+            "\n"
+            "\n"
+            "def fail(message):\n"
+            "    raise BadInput(message)\n"
+            "\n"
+            "\n"
+            "def convert(value):\n"
+            "    if not isinstance(value, str):\n"
+            "        fail('want a string')\n"
+            "    return value.upper()\n",
+            encoding="utf-8")
+        self.source = self.module.read_text(encoding="utf-8")
+
+    def test_an_exception_imported_from_a_sibling_counts_as_owned(self):
+        found = deliberate_raises(
+            self.source, find_function(self.source, "convert", str(self.module)),
+            str(self.module))
+        self.assertIn("BadInput", found)
+
+    def test_only_relative_imports_count(self):
+        """An absolute import brings in someone else's exception, which says
+        nothing about this package's contract."""
+        module = self.root / "shop" / "absolute.py"
+        module.write_text(
+            "from decimal import DecimalException\n"
+            "\n"
+            "\n"
+            "def f(x):\n"
+            "    return x\n",
+            encoding="utf-8")
+        source = module.read_text(encoding="utf-8")
+        found = deliberate_raises(
+            source, find_function(source, "f", str(module)), str(module))
+        self.assertNotIn("DecimalException", found)
+
+    def test_the_contract_exception_is_ranked_weak(self):
+        report = investigate(self.module, "convert", config=FAST)
+        if report.status == "proven" and "BadInput" in report.certificate.rule:
+            self.assertIsNotNone(report.note,
+                                 "a package's own exception should rank weak")
+
+
+class TestEmptyStdinIsNotADefect(unittest.TestCase):
+    """EOFError from the deliberately-empty stdin is the harness, not the code.
+
+    Pointing fd 0 at /dev/null stopped interactive functions from hanging, and
+    promptly created a new false positive: click's `hidden_prompt_func` calls
+    getpass and was reported as raising EOFError.
+    """
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="buggy-eof-"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+    def test_an_interactive_function_is_ranked_weak(self):
+        module = self.root / "interactive.py"
+        module.write_text(
+            "def ask(label):\n    return input(label)\n", encoding="utf-8")
+        report = investigate(module, "ask", config=FAST)
+        self.assertEqual(report.status, "proven")
+        self.assertEqual(report.certificate.kind, OracleKind.CRASH)
+        self.assertIn("EOFError", report.certificate.rule)
+        self.assertIsNotNone(report.note)
+        self.assertIn("standard input", report.note)
+
+    def test_a_real_fault_still_outranks_it(self):
+        module = self.root / "mixed.py"
+        module.write_text(
+            "def ratio(a, b):\n"
+            "    if a == 'ask':\n"
+            "        return input('? ')\n"
+            "    return a / b\n",
+            encoding="utf-8")
+        report = investigate(module, "ratio", config=FAST)
+        self.assertEqual(report.status, "proven")
+        self.assertIn("ZeroDivisionError", report.certificate.rule)
 
 
 class TestSelfHosting(unittest.TestCase):
