@@ -229,11 +229,24 @@ def main() -> int:
             return 0
 
         elif op == "load":
-            namespace = {"__name__": "__buggy_target__"}
+            filename = request.get("filename", "<target>")
+            # Package context, when the parent worked one out. Without
+            # __package__ set and the project root importable, any module in a
+            # package fails on its first `from .sibling import x` with
+            # "attempted relative import with no known parent package". That is
+            # most real Python: before this, 140 of 149 functions in buggy's own
+            # source were unanalysable for exactly that reason.
+            root = request.get("sys_path")
+            if root and root not in sys.path:
+                sys.path.insert(0, root)
+            namespace = {
+                "__name__": request.get("module") or "__buggy_target__",
+                "__file__": filename,
+            }
+            if request.get("package"):
+                namespace["__package__"] = request["package"]
             try:
-                code = compile(
-                    request["source"], request.get("filename", "<target>"), "exec"
-                )
+                code = compile(request["source"], filename, "exec")
                 exec(code, namespace)  # noqa: S102 - executing the target is the job
                 loaded = True
                 emit({"event": "loaded",
@@ -285,6 +298,12 @@ def main() -> int:
             call_args = request.get("args") or []
             if not isinstance(call_args, list):
                 call_args = [call_args]
+            # Required keyword-only parameters must be supplied by name or the
+            # call fails with "missing a required keyword-only argument", which
+            # looks exactly like a defect in the target.
+            call_kwargs = request.get("kwargs") or {}
+            if not isinstance(call_kwargs, dict):
+                call_kwargs = {}
 
             receiver_spec = request.get("receiver")
             if owner is not None or (receiver_spec or {}).get("kind") == "expression":
@@ -298,7 +317,7 @@ def main() -> int:
                 call_args = [receiver, *call_args]
 
             try:
-                value = fn(*call_args)
+                value = fn(*call_args, **call_kwargs)
                 payload, fidelity = _encode(value)
                 emit({"event": "result", "outcome": "ok",
                       "value": payload, "fidelity": fidelity,

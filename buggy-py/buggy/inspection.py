@@ -19,6 +19,7 @@ Two things it gets right that the original did not:
 from __future__ import annotations
 
 import ast
+import re
 
 from .models import ClassInfo, FunctionInfo, Parameter, ParamKind, Signature
 
@@ -345,6 +346,95 @@ def non_code_lines(source: str, filename: str = "<target>") -> set[int]:
             lines.update(range(first.lineno, end + 1))
 
     return lines
+
+
+_EXCEPTION_BASE = re.compile(r"(Error|Exception|Warning)$")
+
+# Only STRUCTURED declarations count: an @raises or :raises: tag, or a Google
+# or NumPy style "Raises" section. Matching free prose is actively harmful -
+# an earlier version accepted a bare "raises X" anywhere in the docstring, and
+# promptly suppressed a real defect whose docstring read
+# "BUG: denominator == 0 raises ZeroDivisionError". Documenting a bug is not
+# declaring a contract.
+_RAISES_TAG = re.compile(r"(?:@raises?|:raises?:?)\s+([A-Za-z_]\w*)")
+_RAISES_SECTION = re.compile(
+    r"^[ \t]*Raises[ \t]*:?[ \t]*\n((?:[ \t]+\S.*\n?)*)", re.MULTILINE)
+_SECTION_ENTRY = re.compile(r"^[ \t]+([A-Za-z_]\w*)\s*(?::|$)", re.MULTILINE)
+
+
+def _declared_exceptions(docstring: str) -> set[str]:
+    """Exception names the author declared, from structured markup only."""
+    names = {m.group(1) for m in _RAISES_TAG.finditer(docstring)}
+    for section in _RAISES_SECTION.finditer(docstring):
+        names.update(m.group(1) for m in _SECTION_ENTRY.finditer(section.group(1)))
+    return {n for n in names if _EXCEPTION_BASE.search(n)}
+
+
+def _module_exceptions(tree: ast.Module) -> set[str]:
+    """Exception classes this module defines.
+
+    One of a module's own exception types coming out of one of its functions is
+    that module's contract, not an accident, even when the `raise` is in a
+    callee.
+    """
+    found: set[str] = set()
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        bases = [b.id if isinstance(b, ast.Name) else
+                 b.attr if isinstance(b, ast.Attribute) else ""
+                 for b in node.bases]
+        if any(_EXCEPTION_BASE.search(b) for b in bases) \
+                or _EXCEPTION_BASE.search(node.name):
+            found.add(node.name)
+    return found
+
+
+def deliberate_raises(source: str, info: FunctionInfo,
+                      filename: str = "<target>") -> frozenset[str]:
+    """Exception names this function raises on purpose.
+
+    A function that rejects bad input is honouring a contract, not failing, and
+    on real code those findings outnumbered everything else: `parse('oops')`
+    raising SourceSyntaxError is the documented behaviour.
+
+    Three sources of evidence, all read from the code rather than guessed:
+
+    - an explicit `raise X` in the function body;
+    - X declared in an `@raises`/`:raises:` tag or a `Raises:` section, which
+      is the author saying so. Structured markup only, never prose: reading a
+      bare "raises X" from any sentence suppressed a real defect documented as
+      "BUG: denominator == 0 raises ZeroDivisionError";
+    - X being an exception class **this module defines**, which covers
+      propagating a module's own error from a helper. Six functions in buggy's
+      own source re-raise SourceSyntaxError from `parse` without mentioning it
+      in their own body. A builtin such as ZeroDivisionError can never qualify
+      this way, which is what keeps the rule safe.
+    """
+    tree = parse(source, filename)
+    target = None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and node.lineno == info.line:
+            target = node
+            break
+    if target is None:
+        return frozenset()
+
+    names: set[str] = set()
+
+    for node in ast.walk(target):
+        if not isinstance(node, ast.Raise) or node.exc is None:
+            continue
+        exc = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
+        if isinstance(exc, ast.Name):
+            names.add(exc.id)
+        elif isinstance(exc, ast.Attribute):
+            names.add(exc.attr)
+
+    names.update(_declared_exceptions(ast.get_docstring(target) or ""))
+    names.update(_module_exceptions(tree))
+    return frozenset(names)
 
 
 def describe_unsupported(

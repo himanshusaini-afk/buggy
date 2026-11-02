@@ -27,9 +27,15 @@ from typing import Any
 
 from . import oracles
 from .executor import Executor, ExecutorError
-from .generate import MAX_COMBINATIONS, generate_arguments, ordinary_arguments
+from .generate import (
+    MAX_COMBINATIONS,
+    generate_arguments,
+    ordinary_arguments,
+    required_keyword_arguments,
+)
 from .inspection import (
     SourceSyntaxError,
+    deliberate_raises,
     describe_unsupported,
     find_classes,
     find_function,
@@ -305,6 +311,7 @@ def _certify(
     config: Config,
     receiver: Receiver | None = None,
     init_names: tuple[str, ...] = (),
+    keywords: dict[str, Any] | None = None,
 ) -> tuple[Certificate | None, str | None]:
     """Run the three pillars. Returns the certificate, or None and a reason."""
     # Pillar 1: admissibility.
@@ -320,7 +327,8 @@ def _certify(
     # a single expected outcome: the finding *is* that outcomes disagree.
     if violation.kind is OracleKind.NONDETERMINISM:
         results = executor.call_many(
-            target, violation.args, 5, timeout=config.timeout, receiver=receiver
+            target, violation.args, 5, timeout=config.timeout,
+            receiver=receiver, kwargs=keywords,
         )
         if not oracles.outcomes_differ(results):
             return None, "not certified - the outcome was consistent on re-execution"
@@ -339,7 +347,8 @@ def _certify(
 
     # Pillar 2: soundness - observe it again on a fresh execution.
     rerun = executor.call(
-        target, violation.args, timeout=config.timeout, receiver=receiver
+        target, violation.args, timeout=config.timeout, receiver=receiver,
+        kwargs=keywords,
     )
     if not _same_failure(violation, rerun, spec, names):
         return None, "not certified - the failure did not recur on re-execution"
@@ -348,7 +357,7 @@ def _certify(
     # Pillar 3: reproducibility - majority of further attempts.
     repeats = executor.call_many(
         target, violation.args, REPRODUCTION_ATTEMPTS,
-        timeout=config.timeout, receiver=receiver,
+        timeout=config.timeout, receiver=receiver, kwargs=keywords,
     )
     reproduced = sum(1 for r in repeats if _same_failure(violation, r, spec, names))
     if reproduced < REPRODUCTIONS_REQUIRED:
@@ -470,6 +479,8 @@ def investigate(
             executor, info.qualified_name, str(file_path), info.signature,
             spec, names, config, receiver,
             init=owner.init if owner is not None else None,
+            keywords=required_keyword_arguments(info.signature),
+            deliberate=deliberate_raises(source, info, str(file_path)),
         ))
     finally:
         if owned:
@@ -486,6 +497,8 @@ def _search(
     config: Config,
     receiver: Receiver | None = None,
     init: Signature | None = None,
+    keywords: dict[str, Any] | None = None,
+    deliberate: frozenset[str] = frozenset(),
 ) -> Report:
     """Generate, filter, execute, check, verify."""
     report = Report(function=target, file=file, status="unconfirmed",
@@ -520,7 +533,8 @@ def _search(
         report.executions += 1
         try:
             result = executor.call(
-                target, args, timeout=config.timeout, receiver=call_receiver
+                target, args, timeout=config.timeout, receiver=call_receiver,
+                kwargs=keywords,
             )
         except ExecutorError:
             # The input could not be handed to the worker. A harness limit, not
@@ -540,7 +554,7 @@ def _search(
         violation = oracles.check_timeout(result, args, config.timeout)
 
         if violation is None:
-            violation = oracles.check_crash(result, args)
+            violation = oracles.check_crash(result, args, deliberate)
             if violation is None and result.outcome in (
                 Outcome.RAISED, Outcome.HARD_CRASH
             ):
@@ -566,7 +580,7 @@ def _search(
                 and index % config.determinism_sample == 0:
             repeats = executor.call_many(
                 target, args, config.determinism_checks,
-                timeout=config.timeout, receiver=receiver,
+                timeout=config.timeout, receiver=receiver, kwargs=keywords,
             )
             report.executions += len(repeats)
             violation = oracles.check_determinism([result, *repeats], args)
@@ -585,7 +599,7 @@ def _search(
 
         certificate, why = _certify(
             executor, target, file, violation, spec, names, config,
-            call_receiver, init_names,
+            call_receiver, init_names, keywords,
         )
         if certificate is not None:
             report.certificate = certificate
@@ -614,7 +628,7 @@ def _search(
     if report.certificate is None and best is not None:
         certificate, why = _certify(
             executor, target, file, best, spec, names, config,
-            best_receiver, init_names,
+            best_receiver, init_names, keywords,
         )
         if certificate is not None:
             report.certificate = certificate

@@ -90,6 +90,12 @@ TYPE_CONFUSION_ADVICE = (
     "from valid input"
 )
 
+DELIBERATE_RAISE_ADVICE = (
+    "the function raises this exception on purpose for invalid input, which is "
+    "its contract rather than a defect; add a precondition describing valid "
+    "input to search for failures it does not intend"
+)
+
 PROPAGATION_ADVICE = (
     "the failing input was already non-finite, so the function propagated a "
     "NaN or infinity rather than creating one; add a precondition such as "
@@ -114,11 +120,31 @@ def is_type_confusion(result: ExecResult) -> bool:
 # --- Individual oracles ---
 
 
-def check_crash(result: ExecResult, args: list[Any]) -> Violation | None:
-    """A raised exception that belongs to the function."""
+def check_crash(
+    result: ExecResult,
+    args: list[Any],
+    deliberate: frozenset[str] = frozenset(),
+) -> Violation | None:
+    """A raised exception that belongs to the function.
+
+    @param deliberate: exception names the function raises with an explicit
+        `raise`, from :func:`buggy.inspection.deliberate_raises`. Those are
+        ranked low: a function rejecting bad input is honouring its contract,
+        and on real code those findings outnumbered everything else.
+    """
     if result.outcome is not Outcome.RAISED or is_environment_error(result):
         return None
+
     confused = is_type_confusion(result)
+    on_purpose = bool(result.exception_type) and result.exception_type in deliberate
+
+    if on_purpose:
+        severity, advice = SEVERITY_TYPE_CONFUSION, DELIBERATE_RAISE_ADVICE
+    elif confused:
+        severity, advice = SEVERITY_TYPE_CONFUSION, TYPE_CONFUSION_ADVICE
+    else:
+        severity, advice = SEVERITY_NORMAL, None
+
     return Violation(
         kind=OracleKind.CRASH,
         args=args,
@@ -126,8 +152,8 @@ def check_crash(result: ExecResult, args: list[Any]) -> Violation | None:
         rule=f"must not raise {result.exception_type}",
         detail=f"{result.exception_type}: {result.message}",
         duration_ms=result.duration_ms,
-        severity=SEVERITY_TYPE_CONFUSION if confused else SEVERITY_NORMAL,
-        advice=TYPE_CONFUSION_ADVICE if confused else None,
+        severity=severity,
+        advice=advice,
     )
 
 

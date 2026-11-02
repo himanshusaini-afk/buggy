@@ -19,6 +19,7 @@ from .models import Signature
 
 __all__ = [
     "MAX_COMBINATIONS",
+    "required_keyword_arguments",
     "generate_arguments",
     "ordinary_arguments",
     "values_for_annotation",
@@ -285,6 +286,20 @@ def _first_ordinary(pool: list[Any]) -> Any:
         if isinstance(value, str):
             return value
     return unremarkable[0]
+
+
+def required_keyword_arguments(signature: Signature) -> dict[str, Any]:
+    """Values for keyword-only parameters that have no default.
+
+    Supplied rather than varied. They have to be present for the call to
+    happen at all, and the interesting variation is almost always positional;
+    omitting them produced "missing a required keyword-only argument", a
+    harness artifact indistinguishable from a defect.
+    """
+    return {
+        p.name: _first_ordinary(values_for_annotation(p.annotation))
+        for p in signature.required_keywords
+    }
 
 
 def ordinary_arguments(signature: Signature) -> list[Any]:

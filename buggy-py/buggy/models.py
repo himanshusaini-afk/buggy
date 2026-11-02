@@ -64,6 +64,20 @@ class Signature:
     def names(self) -> tuple[str, ...]:
         return tuple(p.name for p in self.callable_parameters)
 
+    @property
+    def required_keywords(self) -> tuple[Parameter, ...]:
+        """Keyword-only parameters with no default, which must be supplied.
+
+        Excluding them from `callable_parameters` is right, since they are not
+        positional, but the call still needs them. Omitting them raised
+        "missing a required keyword-only argument", a harness artifact that was
+        reported as a defect in the target.
+        """
+        return tuple(
+            p for p in self.parameters
+            if p.kind is ParamKind.KEYWORD_ONLY and not p.has_default
+        )
+
 
 @dataclass(frozen=True)
 class FunctionInfo:

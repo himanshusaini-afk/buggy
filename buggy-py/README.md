@@ -148,6 +148,14 @@ buggy investigate Session.retry -f session.py --receiver 'Session("localhost", 8
 A failure inside `__init__` is reported as a setup problem, never as a defect in
 the method under test.
 
+Functions in a package are loaded with their package context, so a module whose
+first line is `from .rates import rate` works. This is not a detail: without it,
+140 of the 149 analysable functions in buggy's own source reported "the module
+failed to load", while every fixture passed because fixtures are standalone
+files. Required keyword-only parameters are supplied by name for the same
+reason, since omitting them raised `missing a required keyword-only argument`,
+a harness artifact indistinguishable from a defect.
+
 Still out of reach, each refused with a reason rather than silently reported
 clean: special methods (`__init__`, `__add__`, ...), properties, `async` functions,
 and functions nested inside other functions. On the stdlib's `statistics`
@@ -354,8 +362,8 @@ built-in numeric ones, so a broken rule is reported in your words.
 4. **non-finite** - it returned NaN or an infinity *from finite arguments*
 5. **nondeterminism** - the same input gave different answers (`--determinism N`)
 
-Two rankings keep the signal usable, because the easiest failures to trigger are
-usually the least interesting:
+Three rankings keep the signal usable, because the easiest failures to trigger
+are usually the least interesting:
 
 **Propagation is not a defect.** `monthly(nan) -> nan` is IEEE 754 working, not a
 bug. A non-finite result is only reported when the arguments were all finite, so
@@ -368,6 +376,19 @@ is trivial to trigger and is the caller's mistake. Such a finding is remembered
 but the search continues, so `divide` is reported at `(x, 0)` with
 `ZeroDivisionError` rather than at `(None, None)`. If type confusion is the only
 failure found it is still reported, with advice to constrain the parameter types.
+
+**A deliberate raise is a contract, not a defect.** `parse('oops')` raising
+`SourceSyntaxError` is the documented behaviour, and on real code those findings
+outnumbered everything else. An exception is treated as intended when the
+function raises it explicitly, when an `@raises`/`:raises:` tag or a `Raises:`
+section declares it, or when it is an exception class the module itself defines
+(which covers propagating a module's own error from a helper).
+
+Only structured markup counts, never prose. An earlier version read a bare
+"raises X" from anywhere in the docstring and promptly suppressed a real defect
+documented as `"""BUG: denominator == 0 raises ZeroDivisionError."""`.
+Documenting a bug is the opposite of declaring a contract, and silently ignoring
+that finding would have been far worse than the noise the rule removes.
 
 ## Why a rewrite
 
@@ -470,6 +491,14 @@ Isolation today is a separate process with a CPU cap, a file-size cap, and
 kill-on-timeout. There is no filesystem, network or syscall restriction. Do not
 point this at code you would not run.
 
+**Side effects happen.** Your functions are really executed, and for an instance
+method so is the constructor, with generated arguments. Running buggy over its
+own source left a stray SQLite file behind, because a generated argument reached
+a constructor that opens a database. Nothing is faked or mocked, which is what
+makes a finding reproducible and also what makes this a real consideration. Run
+it on a clean working tree, and prefer `--receiver` to pin the construction when
+a class touches the outside world.
+
 ## Tests
 
 ```bash
@@ -478,7 +507,9 @@ python3 -m unittest discover -s tests -t .    # no installs needed
 pytest
 ```
 
-197 tests, all passing, about 38 seconds. `tests/test_prove.py` includes the
+216 tests, all passing, about 39 seconds. `tests/test_realcode.py` holds the
+regressions that only a run over real code could find, and is worth reading
+before trusting the fixture suite. `tests/test_prove.py` includes the
 parity baseline against the recorded TypeScript run and is skipped if the
 example sources are absent. `tests/test_repair.py` injects a deliberately
 sabotaged patch and a deliberately overfit one, to check that the evidence

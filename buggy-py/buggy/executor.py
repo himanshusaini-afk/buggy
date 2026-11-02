@@ -22,6 +22,7 @@ import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
@@ -45,6 +46,44 @@ _READY_TIMEOUT_S = 10.0
 
 class ExecutorError(RuntimeError):
     """The worker could not be started or spoken to."""
+
+
+def _package_context(filename: str) -> tuple[str | None, str | None, str | None]:
+    """Work out how the target module would normally be imported.
+
+    @returns (dotted module name, package name, directory to put on sys.path),
+        all None for a standalone script.
+
+    Needed because the target is executed from a source string, and a module in
+    a package fails on its first `from .sibling import x` unless `__package__`
+    is set and the project root is importable. That is most real Python: before
+    this existed, 140 of the 149 analysable functions in buggy's own source
+    reported "the module failed to load" for that single reason, while every
+    test fixture passed because fixtures are standalone files.
+
+    The package root is found by walking up while `__init__.py` is present,
+    which is the same rule Python uses.
+    """
+    path = Path(filename)
+    if not path.suffix == ".py" or not path.exists():
+        return None, None, None
+    path = path.resolve()
+
+    parts = [path.stem]
+    directory = path.parent
+    # Bounded, so a directory tree full of __init__.py cannot walk to /.
+    for _ in range(40):
+        if not (directory / "__init__.py").exists():
+            break
+        parts.insert(0, directory.name)
+        directory = directory.parent
+
+    if len(parts) == 1:
+        # A standalone script. Its own directory still goes on the path so that
+        # sibling modules it imports absolutely can be found.
+        return None, None, str(path.parent)
+
+    return ".".join(parts), ".".join(parts[:-1]), str(directory)
 
 
 @dataclass
@@ -158,8 +197,10 @@ class Executor:
         self._limits = self._worker.limits
         self._load_error = None
 
+        module, package, root = _package_context(self._filename)
         reply = self._request({
-            "op": "load", "source": self._source, "filename": self._filename
+            "op": "load", "source": self._source, "filename": self._filename,
+            "module": module, "package": package, "sys_path": root,
         }, timeout=max(self._timeout, 10.0))
 
         if reply is None:
@@ -382,6 +423,7 @@ class Executor:
         *,
         timeout: float | None = None,
         receiver: Receiver | None = None,
+        kwargs: dict[str, Any] | None = None,
     ) -> ExecResult:
         """Call `name` with positional `args` and describe what happened.
 
@@ -396,6 +438,8 @@ class Executor:
 
         budget = timeout if timeout is not None else self._timeout
         payload: dict[str, Any] = {"op": "call", "name": name, "args": args}
+        if kwargs:
+            payload["kwargs"] = kwargs
         if receiver is not None and receiver.needed:
             payload["receiver"] = receiver.to_payload()
 
@@ -457,9 +501,11 @@ class Executor:
         *,
         timeout: float | None = None,
         receiver: Receiver | None = None,
+        kwargs: dict[str, Any] | None = None,
     ) -> list[ExecResult]:
         """Call the same input repeatedly, for determinism and reproducibility."""
         return [
-            self.call(name, args, timeout=timeout, receiver=receiver)
+            self.call(name, args, timeout=timeout, receiver=receiver,
+                      kwargs=kwargs)
             for _ in range(times)
         ]
