@@ -1,5 +1,7 @@
 ---
 inclusion: auto
+name: buggy-bug-trends
+description: Reading recorded defect history from .buggy/findings.db and acting on regressions. Use when asked which bugs are known in this project, whether a fix held, what keeps breaking or regressing, or for a defect summary or bug report.
 ---
 
 # Buggy - Defect History and Trends

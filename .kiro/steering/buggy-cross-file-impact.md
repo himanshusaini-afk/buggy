@@ -1,5 +1,7 @@
 ---
 inclusion: auto
+name: buggy-cross-file-impact
+description: Finding and re-verifying the callers of a Python function before its behaviour changes. Use when changing a function's return type, return range, raise behaviour or a guarantee its callers depend on, when refactoring or renaming a function, or when asked what a change might break downstream.
 ---
 
 # Buggy - Cross-File Impact Analysis

@@ -1,5 +1,7 @@
 ---
 inclusion: auto
+name: buggy-onboarding
+description: Warning about a Python file's proven defect history before it is edited. Use when starting work in an unfamiliar file, when asked what has gone wrong in this code before, or which parts of a file are risky to touch.
 ---
 
 # Buggy - Onboarding Assistant
