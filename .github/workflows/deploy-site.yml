@@ -2,9 +2,10 @@ name: Deploy site to GitHub Pages
 
 on:
   push:
-    # `buggy-agent-updates` is here so the site can publish from the current
-    # working branch. Once this lands on main it can be dropped.
-    branches: [main, buggy-agent-updates]
+    # `main` only. Work happens on short-lived branches that are merged here
+    # and deleted, so the deploy belongs at the merge: the site should never
+    # publish from a branch that is still in progress.
+    branches: [main]
     paths:
       - 'site/**'
       - '.github/workflows/deploy-site.yml'

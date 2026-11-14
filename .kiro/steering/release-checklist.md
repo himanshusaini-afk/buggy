@@ -52,34 +52,71 @@ Preview before pushing:
 npx serve site
 ```
 
-## 3. Verify, then push
+## 3. Verify, then land it on `main`
+
+`main` is the branch the world gets: it is the GitHub default, so it is what a
+`git clone` and an `npm install github:...` resolve to, and it is what anyone
+arriving from the website pulls. **Keep it current.**
+
+### The branch cycle
+
+Every change, however small, follows this:
+
+```bash
+git checkout main && git pull origin main
+git checkout -b <short-descriptive-name>
+# ... do the work, verify it, commit it ...
+git push origin <branch>                  # optional, for a reviewable history
+```
+
+Then land it and clean up:
+
+```bash
+git checkout main
+git merge --ff-only <branch>              # fast-forward; no merge commits
+git push origin main
+git branch -d <branch>                    # delete locally
+git push origin --delete <branch>         # and on the remote, if pushed
+```
+
+`--ff-only` is deliberate. If it refuses, `main` has moved and the branch needs
+rebasing onto it first (`git rebase main`). That keeps the history linear and
+makes "what shipped" readable.
+
+### Verify before the merge, not after
 
 In order, and do not skip ahead on a failure:
 
 ```bash
-npm run build          # tsc must be clean
-npx vitest run         # all tests must pass; note the new total
-git add <specific files>
-git commit
-git push origin <current-branch>
+npm run build                                     # tsc must be clean
+npx vitest run                                    # note the new total
+cd buggy-py && python3 -m unittest discover -s tests -t .
 ```
 
-Then confirm the deploy:
+Both suites matter and they are independent. The Python package has no Node
+dependency, so a machine without `node` can still verify `buggy-py` in full —
+say which suite you ran and which you could not, rather than implying both
+passed.
+
+### Then confirm the deploy
 
 ```
 https://github.com/himanshusaini-afk/buggy/actions
 ```
 
-A push that touches `site/**` triggers the Pages workflow. A push that does
-**not** touch `site/**` will not deploy — so if the site needed updating and the
-workflow did not run, the site change was missed.
+The Pages workflow fires on a push to `main` that touches `site/**`. Because
+the site now publishes from `main` only, **the deploy happens at the merge**,
+not when you push the feature branch. If the site needed updating and no
+workflow ran after the merge, the site change was missed.
 
 ## Rules
 
-- **Never push to `main` without being asked.** Work lands on the current
-  feature branch. `main` is 20+ commits behind by design.
+- **Land work on `main` and delete the branch.** Short-lived branches, linear
+  history, `main` always current. Never force-push `main`, and never merge work
+  whose verification did not pass.
 - **Stage specific files**, not `git add -A`. This repo generates artefacts
-  (`.debugger/`, screenshots, temp dirs) that must not be committed.
+  (`.debugger/`, `.buggy/`, screenshots, temp dirs) that must not be committed.
+  `.kiro/settings/` is git-ignored because it holds machine-specific paths.
 - **Commit messages explain why**, not what. The diff shows what changed; the
   message should say what was broken or missing and why this is the fix.
 - **Report the real test count** after a change. If a test fails, say which and
