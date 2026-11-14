@@ -1,16 +1,16 @@
 {
   "enabled": true,
-  "name": "Buggy Auto-Analyze on Save",
-  "description": "When a TypeScript file is saved, automatically run Buggy's analysis to detect syntax errors, list functions, and flag potential issues. Reports findings inline.",
+  "name": "Buggy Triage on Save",
+  "description": "When a Python file is saved, list its functions and flag the risky ones. Parsing only - no code is executed, so saving a file can never trigger a side effect.",
   "version": "1",
   "when": {
     "type": "fileEdited",
     "patterns": [
-      "**/*.ts"
+      "**/*.py"
     ]
   },
   "then": {
     "type": "askAgent",
-    "prompt": "A TypeScript file was just saved. Use the buggy_analyze MCP tool to parse it and check for issues. If syntax errors are found, report them. If the file has functions that look risky (e.g., division, array access without bounds checking, unclamped numeric operations), suggest running buggy_investigate on those functions. Keep the response brief — just flag issues, don't fix them unless asked."
+    "prompt": "A Python file was just saved. Call buggy_functions with the file path to list its functions and see which are investigable.\n\nThis tool only parses - it does not run the file. Do NOT call buggy_investigate, buggy_scan or buggy_repair here: those execute the module, which on a save hook would run import-time side effects on every keystroke-to-disk. If a function looks risky (division, indexing without a bounds check, unclamped arithmetic, money or percentage math), name it and offer to investigate it on request.\n\nKeep the response to a couple of lines. If nothing looks risky and the file parsed, say nothing."
   }
 }

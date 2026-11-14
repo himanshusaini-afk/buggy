@@ -2,64 +2,99 @@
 inclusion: manual
 ---
 
-# Buggy — PR Review Integration
+# Buggy - PR Review Integration
 
-When the user asks to "review a PR", "check this branch", "review my changes", or "verify this diff", use Buggy to provide proof-backed code review.
+When the user asks to "review a PR", "check this branch", "review my changes",
+or "verify this diff", back the review with proven defects rather than opinions.
 
 ## Workflow
 
 ### Step 1: Get the diff
 
-Run `git diff main...HEAD --name-only` (or `git diff --staged --name-only` for uncommitted changes) to find changed files.
+```bash
+git diff main...HEAD --name-only        # a branch
+git diff --staged --name-only           # uncommitted work
+```
 
-### Step 2: For each changed .ts file
+Then `git diff main...HEAD -- <file>` per file, to see which functions the
+hunks actually touch.
 
-1. Call `buggy_analyze` to check for syntax issues
-2. Call `buggy_list_functions` to identify functions in that file
-3. Determine which functions were modified (from the diff hunks)
+### Step 2: Inventory each changed Python file - no execution
 
-### Step 3: Investigate changed functions
+1. Call `buggy_functions` on the file. This confirms it parses and lists which
+   functions are investigable.
+2. Match the hunk line numbers against the reported function lines to work out
+   which functions changed. Reviewing untouched functions wastes the budget.
+3. Call `buggy_recall` on the changed functions. A defect already on record
+   against code this PR touches belongs in the review, and a `regressed` status
+   means this branch may have undone an earlier fix.
 
-For each modified function:
-1. Infer specifications from:
-   - The function's JSDoc comments
-   - Its return type
-   - Parameter constraints visible in the code
-   - Related test files (if they exist)
-2. Call `buggy_investigate` with those specifications
+### Step 3: Investigate the changed functions
+
+Investigation **executes the module**. On a branch that touches infrastructure
+code, say so and get agreement before running it.
+
+For each changed function, infer the specification from:
+
+- the docstring, especially a documented raise or a stated invariant
+- the return annotation
+- parameter guards already present in the body
+- the test file, if one exists
+
+Then:
+
+```
+buggy_investigate({
+  function: "apply_discount",
+  file: "src/pricing.py",
+  preconditions: ["price >= 0", "percent_off >= 0"],
+  postconditions: ["result >= 0"]
+})
+```
+
+Conditions are Python expressions.
 
 ### Step 4: Format as review
 
-Present results as a structured review:
-
 ```
-## PR Review — Buggy Verification
+## PR Review - Buggy Verification
 
-### ✅ src/utils.ts — formatDate
-No bugs found with inferred specifications.
+### src/utils.py - format_date
+No failing input found within the 300-input budget. Not a proof of correctness.
 
-### ⚠️ src/payments.ts — applyDiscount  
-**Bug proven:** When discountPercent > 100, result becomes negative.
-- Input: `{subtotal: 100, discountPercent: 150}`
-- Output: `-50` (violates `result >= 0`)
-- Approved fix available (overfitting: 8%)
+### src/pricing.py - apply_discount    DEFECT PROVEN
+Returns a negative price when the discount exceeds 100 percent.
+  Reproduce:  apply_discount(100, 150)
+  Result:     -50
+  Broke:      result >= 0
+  Verified:   admissible, re-observed in a fresh process, 3 of 3 repeats
 
-### ✅ src/payments.ts — calculateTax
-No bugs found with inferred specifications.
+A verified patch is available - clamp percent_off to [0, 100].
+
+### src/pricing.py - calculate_tax
+no_valid_input - the preconditions rejected every candidate, so this function
+was never actually run. Nothing is known about it.
 
 ---
-**Summary:** 3 functions checked, 1 bug proven, 1 fix available.
+Summary: 3 functions changed, 1 defect proven, 1 never executed.
 ```
 
-### Step 5: Offer to apply fixes
+Report `unconfirmed` and `no_valid_input` as distinct from "clean". Collapsing
+them into a pass is how a review becomes misleading.
 
-If approved patches exist, ask: "Want me to apply the verified fixes to this branch?"
+### Step 5: Offer fixes
+
+If the user wants a fix, call `buggy_repair` on the function. Each candidate
+carries a verdict of `verified`, `overfit` or `rejected` with its evidence -
+there is no numeric score. Show the diff and let the user choose. Nothing is
+written to the file by the tool.
 
 ## Triggering
 
-This steering is activated manually when the user mentions PR review. It can also be triggered by the user saying:
+Activated manually, or when the user says:
+
 - "review my changes"
-- "check this PR"  
+- "check this PR"
 - "verify the diff"
 - "is this safe to merge?"
 - "any bugs in my changes?"

@@ -1,13 +1,13 @@
 {
   "enabled": true,
   "name": "Buggy Pre-Task Analysis",
-  "description": "Before starting any task from a spec, Buggy analyzes the related source files to understand the current state and flag existing bugs that might affect the task.",
+  "description": "Before starting a spec task, look at the Python files it touches and recall any defects already proven against them, so the task starts with known history in view.",
   "version": "1",
   "when": {
     "type": "preTaskExecution"
   },
   "then": {
     "type": "askAgent",
-    "prompt": "A spec task is about to start. If the buggy MCP server is available, use buggy_list_functions to scan the files related to this task. Briefly note any functions that might have edge-case bugs (division by zero, missing bounds checks, unclamped values). This gives context before implementation begins. Keep it to 2-3 lines max."
+    "prompt": "A spec task is about to start. If the buggy MCP server is available:\n\n1. Call buggy_functions on the Python files related to this task to see what is in them and which functions are investigable.\n2. Call buggy_recall (no arguments lists everything recorded) to check whether any defect has already been proven in this project against those functions.\n\nBoth tools only read - neither executes the target code. Note briefly any function with recorded history or an obvious edge case (division by zero, missing bounds check, unclamped value).\n\nKeep it to 2-3 lines."
   }
 }

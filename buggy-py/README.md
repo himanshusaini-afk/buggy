@@ -491,8 +491,9 @@ Wired into the live pipeline and tested:
 - repair: certificate-driven patch strategies, each verified by execution
   against the four questions above, with regression and overfitting detection
   grounded in observed behaviour rather than a score
-- the `functions`, `investigate`, `repair` and `scan` commands, with `--json`
-- the MCP server: four tools over stdio, stdlib-only, with stdout isolated from
+- the `functions`, `investigate`, `repair`, `scan`, `findings`, `recheck` and
+  `export-tests` commands, with `--json`
+- the MCP server: six tools over stdio, stdlib-only, with stdout isolated from
   the protocol so a print in your code cannot break a session
 
 Not written yet, and not implied anywhere in the output:

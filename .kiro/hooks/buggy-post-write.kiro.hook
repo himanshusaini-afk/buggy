@@ -1,7 +1,7 @@
 {
   "enabled": true,
   "name": "Buggy Post-Write Verification",
-  "description": "After any code-writing tool completes (str_replace, fs_write, etc.), Buggy checks if the newly written code has potential issues by analyzing the affected functions for specification violations.",
+  "description": "After any code-writing tool completes (str_replace, fs_write, etc.), check whether the newly written Python has risky patterns. Parsing only - nothing is executed without being asked.",
   "version": "1",
   "when": {
     "type": "postToolUse",
@@ -11,6 +11,6 @@
   },
   "then": {
     "type": "askAgent",
-    "prompt": "Code was just written or modified. Check if the modified code introduces potential bugs: look for unchecked division, missing null guards, unbounded numeric operations, or non-deterministic behavior. If the buggy MCP server is available, use buggy_analyze on the affected file. Briefly report any concerns — don't auto-fix."
+    "prompt": "Code was just written or modified. If the file is Python, check whether the change introduces a risky pattern: unchecked division, indexing without a bounds check, a missing None guard, unbounded arithmetic, or non-determinism.\n\nIf the buggy MCP server is available, call buggy_functions on the affected file to confirm the new code parses and to see which functions are investigable. Do not call buggy_investigate, buggy_scan or buggy_repair unless the user asks - those execute the module.\n\nReport concerns briefly. Do not auto-fix."
   }
 }

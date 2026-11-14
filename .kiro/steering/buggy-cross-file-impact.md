@@ -2,54 +2,78 @@
 inclusion: auto
 ---
 
-# Buggy — Cross-File Impact Analysis
+# Buggy - Cross-File Impact Analysis
 
-Before modifying any function, check its callers to ensure changes don't break downstream consumers.
+Before changing a function, check its callers so a fix in one place does not
+break another.
 
 ## When This Applies
 
-Whenever you're about to change a function's:
-- Return type
-- Parameter types or count
-- Throw behavior
-- Side effects
-- Postcondition guarantees (e.g., "always returns >= 0" → now might return negative)
+Whenever you are about to change a function's:
+
+- return type, or the range of values it can return
+- parameter types, count, or defaults
+- raise behaviour (a new exception, or one no longer raised)
+- side effects
+- a guarantee a caller may rely on, for example "always returns >= 0"
 
 ## Workflow
 
-### Step 1: Before modifying a function
+### Step 1: Find the callers
 
-1. Call `buggy_query_graph` with `query_type: "callees"` using the function's node ID to find what it calls
-2. More importantly: search the codebase for all callers of this function using grep or the graph database
+There is no call-graph query in the Python package, so find callers with
+`grep_search` on the function name, then confirm each hit is a real call rather
+than a same-named attribute or a string.
 
-### Step 2: Identify impact
+For a method, search for the attribute (`.total(`) as well as the class name,
+since the receiver may be built elsewhere.
 
-For each caller:
-- Does the caller assume the return value is non-null?
-- Does the caller assume the return value is in a specific range?
-- Does the caller catch exceptions from this function?
-- Does the caller pass the result to another function with preconditions?
+### Step 2: Identify the assumptions
 
-### Step 3: Verify after change
+For each caller ask:
 
-After applying the modification:
-1. Call `buggy_analyze` on the modified file
-2. Call `buggy_analyze` on each file containing a caller
-3. If any callers might break, call `buggy_investigate` on them with appropriate specs
+- does it assume the result is not `None`?
+- does it assume a range, for example non-negative or non-zero?
+- does it catch exceptions from this function, and would a new exception type
+  slip past the `except` clause?
+- does it pass the result straight into another function that has its own
+  precondition?
 
-### Step 4: Report
+### Step 3: Record what you are about to risk
 
-Briefly note: "Changed X. Verified Y callers still work. No issues found." Or: "Changed X. Caller Z in file.ts may break because it assumes non-negative return."
+Call `buggy_recall` on both the function and its callers before editing. A
+defect already proven against a caller changes the order of work, and a
+`regressed` status means a previous fix in this area did not hold. This only
+reads, so it is always safe.
+
+### Step 4: Verify after the change
+
+1. Call `buggy_functions` on each changed file to confirm it still parses.
+2. For the function you changed, call `buggy_investigate` with the guarantee
+   the callers depend on as a postcondition, for example
+   `postconditions: ["result >= 0"]`.
+3. For a caller whose assumption you weakened, investigate the caller too, with
+   the assumption written as its postcondition.
+
+Remember that `buggy_investigate` executes the module. On code that touches a
+network or a database at import time, confirm with the user first.
+
+### Step 5: Report
+
+One or two lines: "Changed `calculate_subtotal`. Checked 2 callers, both still
+hold." Or: "Changed `calculate_subtotal`. `generate_invoice` in `invoice.py:12`
+may break - it assumes a non-negative subtotal, which can now be negative."
 
 ## Example
 
 ```
-Modifying: calculateSubtotal() in cart.ts
-Callers found:
-  - checkout.ts:45 → processOrder() passes result to applyTax()
-  - invoice.ts:12 → generateInvoice() assumes result >= 0
+Modifying: calculate_subtotal() in cart.py
+
+Callers found by grep:
+  - checkout.py:45  process_order() passes the result to apply_tax()
+  - invoice.py:12   generate_invoice() assumes result >= 0
 
 After modification:
-  ✅ processOrder — still works (result type unchanged)
-  ⚠️ generateInvoice — may break if subtotal can now be negative
+  process_order     - still holds, investigated with post ["math.isfinite(result)"]
+  generate_invoice  - at risk, proven: calculate_subtotal([]) returns -0.0
 ```

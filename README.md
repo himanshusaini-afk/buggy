@@ -45,6 +45,44 @@ the same shape. In this implementation's own recorded runs the classifier
 rejected all 21 candidate patches across both languages, scoring the correct
 `if people == 0: return 0.0` guard at 93% likely-overfit.
 
+### Installing the Python package
+
+No Node, no npm, and no dependencies — Python 3.10 or newer is the whole
+requirement. A virtualenv is recommended, because the npm package installs
+binaries with the same two names (`buggy`, `buggy-mcp`) and whichever lands on
+`PATH` first wins:
+
+```bash
+python3 -m venv ~/.buggy-venv
+~/.buggy-venv/bin/pip install -e buggy-py/
+
+~/.buggy-venv/bin/buggy functions src/pricing.py
+~/.buggy-venv/bin/buggy investigate apply_discount -f src/pricing.py \
+  --pre 'price >= 0' --post 'result >= 0'
+```
+
+As an MCP server, point your client at the absolute path so it does not depend
+on `PATH` order:
+
+```json
+{
+  "mcpServers": {
+    "buggy": {
+      "command": "/Users/you/.buggy-venv/bin/buggy-mcp",
+      "autoApprove": ["buggy_functions", "buggy_recall"]
+    }
+  }
+}
+```
+
+`buggy_functions` and `buggy_recall` only read your code. The other four tools
+(`buggy_investigate`, `buggy_repair`, `buggy_scan`, `buggy_recheck`) import the
+target module to prove a defect by executing it, which runs its top-level code —
+so leaving them out of `autoApprove` means you are asked first. Full options,
+including a no-install variant, are in
+[`buggy-py/mcp-config.example.json`](buggy-py/mcp-config.example.json) and
+[`buggy-py/README.md`](buggy-py/README.md).
+
 ## Quick Start
 
 ```bash
@@ -146,7 +184,9 @@ npm link         # optional: expose `buggy` / `buggy-mcp` globally
 - For Python bug proving: a `python` interpreter on `PATH` (functions are executed in a real Python process). Note that specifications are still written in JavaScript — see [Working on a Python project?](#working-on-a-python-project)
 
 The Python package in [`buggy-py/`](buggy-py/) needs none of the above: Python
-3.10+ and no dependencies at all.
+3.10+ and no dependencies at all. See
+[Installing the Python package](#installing-the-python-package) for the two
+commands.
 
 ## Integration Guide
 

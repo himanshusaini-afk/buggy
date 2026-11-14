@@ -1,13 +1,13 @@
 {
   "enabled": true,
   "name": "Buggy Spec Evolution",
-  "description": "After a spec task completes, Buggy verifies the new implementation by inferring updated specifications from the modified code and running investigations to ensure correctness.",
+  "description": "After a spec task completes, infer preconditions and postconditions from the Python code that was just written and offer to prove the new implementation against them.",
   "version": "1",
   "when": {
     "type": "postTaskExecution"
   },
   "then": {
     "type": "askAgent",
-    "prompt": "A spec task just completed. Perform specification evolution:\n\n1. Identify which functions were added or modified during this task.\n2. For each modified function:\n   a. Read the function implementation and its JSDoc/comments.\n   b. Infer updated preconditions and postconditions from the new code.\n   c. Call buggy_investigate with the new specifications to verify correctness.\n3. If bugs are found in the NEW implementation, report them immediately.\n4. Keep responses brief — only report issues, not successes."
+    "prompt": "A spec task just completed. Perform specification evolution on the Python that was written:\n\n1. Identify which functions were added or modified during this task.\n2. For each, read the implementation and its docstring, then infer the specification the new code is supposed to satisfy. Conditions are PYTHON expressions - parameter names are in scope, and postconditions also see 'result'. The math module and common builtins are available. For example: preconditions ['price >= 0', 'percent_off >= 0'] and postconditions ['result >= 0', 'math.isfinite(result)'].\n3. Call buggy_recall on those functions first - it only reads - to see whether a defect was already proven there before this task.\n4. Then name the functions whose specification is worth proving and ask the user whether to investigate. Do not call buggy_investigate unprompted: it executes the module, including any import-time side effects.\n\nIf the user agrees, call buggy_investigate with 'function', 'file', 'preconditions' and 'postconditions'. Interpret the status honestly:\n   - proven: a real failing input was found; quote the 'reproduce' call\n   - unconfirmed: nothing failed within the budget. This is NOT a proof of correctness\n   - no_valid_input: the preconditions rejected every candidate, so the function never ran and nothing was learned - loosen them and try again\n   - skipped: it could not be called at all; the reason is in the response\n\nKeep responses brief - report problems, not successes."
   }
 }

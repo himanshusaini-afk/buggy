@@ -2,70 +2,97 @@
 inclusion: auto
 ---
 
-# Buggy — Bug Trend Tracking
+# Buggy - Defect History and Trends
 
-After every Buggy investigation that finds a confirmed bug, update the bug trend report at `.debugger/bug-report.md`.
+The project's defect history is a database, not a document. `.buggy/findings.db`
+holds every recorded defect with a trigger that can be re-run. Read it rather
+than maintaining a parallel markdown tally that drifts out of date.
 
-## When to Update
+## Recording
 
-After any `buggy_investigate` call returns `status: "confirmed_and_repaired"` or `status: "confirmed_no_repair"`.
+Nothing is recorded unless asked. Pass `record: true` to `buggy_investigate`
+when the user wants a proven defect kept:
 
-## Report Format
+```
+buggy_investigate({
+  function: "apply_discount",
+  file: "src/pricing.py",
+  postconditions: ["result >= 0"],
+  record: true
+})
+```
 
-Maintain `.debugger/bug-report.md` with this structure:
+Record a defect when it is worth re-checking later - a real bug in code that
+will be edited again. Do not record exploratory findings, and do not record on
+a hook that fires automatically.
+
+## Reading the history
+
+```
+buggy_recall({})     # every recorded defect, no execution
+buggy_recheck({})    # re-runs every stored trigger - this DOES execute code
+```
+
+`buggy_recall` returns `known`, a `regressed` count, and a `findings` list
+where each entry carries `status`, `broke`, `reproduce`, `times_seen`,
+`first_seen` and `last_seen`.
+
+`buggy_recheck` returns `checked`, `regressions`, and per-finding `outcome`:
+
+| outcome | meaning |
+|---|---|
+| `still_failing` | the trigger fires exactly as before |
+| `fixed` | the trigger no longer fails |
+| `regressed` | it was observed fixed and is failing again |
+| `unreachable` | the function or file moved, so the trigger no longer applies |
+
+## The only trend that matters
+
+**Regressions.** Everything else is bookkeeping. A `regressed` finding is a
+defect someone already fixed once, which means the fix did not hold or was
+reverted. Surface it immediately and by name, with its `reproduce` call.
+
+`buggy_recheck` exits non-zero when anything regressed, so it works unchanged
+as a CI step.
+
+## Writing a report, when asked
+
+Only when the user asks for one. Derive every number from `buggy_recall` or
+`buggy_recheck` output - never from memory of this session:
 
 ```markdown
-# Bug Trend Report
+# Defect History
 
-Last updated: [timestamp]
+Generated: [timestamp]   Source: .buggy/findings.db
 
-## Summary
+| status | count |
+|---|---|
+| open | X |
+| fixed | Y |
+| regressed | Z |
+| unreachable | W |
 
-| Metric | Count |
-|--------|-------|
-| Total investigations | X |
-| Bugs proven | Y |
-| Fixes applied | Z |
-| Open (unfixed) | W |
+## Regressed - act on these first
 
-## By File (Risk Heatmap)
+### apply_discount (src/pricing.py)
+- Broke: result >= 0
+- Reproduce: apply_discount(100, 150)
+- Seen 3 times, first 2026-01-04, last 2026-03-11
 
-| File | Bugs Found | Fixed | Open | Risk |
-|------|-----------|-------|------|------|
-| src/cart.ts | 4 | 3 | 1 | 🔴 High |
-| src/payments.ts | 2 | 2 | 0 | 🟢 Clean |
-| src/auth.ts | 1 | 0 | 1 | 🟡 Medium |
+## By file
 
-## Bug Patterns
-
-| Pattern | Occurrences | Example |
-|---------|-------------|---------|
-| Unclamped numeric input | 3 | discount > 100% |
-| Division by zero | 2 | empty array .length |
-| Non-determinism | 1 | Math.random in logic |
-
-## Recent Bugs
-
-### [date] — calculateSubtotal (src/cart.ts)
-- **Type:** Negative result from unclamped subtraction
-- **Trigger:** `{price: 0.5, quantity: 15}`
-- **Status:** Fixed ✓
-- **Fix:** Guard `item.price > 2` before bulk discount
-
-### [date] — calculateAveragePrice (src/cart.ts)
-- **Type:** Division by zero
-- **Trigger:** `[]` (empty array)
-- **Status:** Fixed ✓
-- **Fix:** Early return 0 for empty array
+| file | open | fixed | regressed |
+|---|---|---|---|
+| src/pricing.py | 1 | 2 | 1 |
 ```
 
 ## Rules
 
-1. Only add entries for PROVEN bugs (with certificates), not speculative issues
-2. Mark bugs as "Fixed ✓" when an approved patch is applied
-3. Update the risk heatmap colors based on open bug count:
-   - 0 open = 🟢 Clean
-   - 1 open = 🟡 Medium
-   - 2+ open = 🔴 High
-4. Keep the "Recent Bugs" section to last 20 entries
-5. Update "Bug Patterns" by grouping similar root causes
+1. Only recorded, proven defects appear. Never speculative issues
+2. Never write `fixed` yourself - that status is set by a `buggy_recheck`
+   observation, not by applying a patch
+3. `unconfirmed` is not a data point. It means nothing failed within the
+   budget, so it says nothing about correctness
+4. Quote `reproduce` exactly; its value is that it runs
+5. If `.buggy/` does not exist, there is no history. Say that rather than
+   producing an empty report

@@ -2,9 +2,10 @@
 inclusion: manual
 ---
 
-# Buggy — Specification Inference from Git Diff
+# Buggy - Specification Inference from Git History
 
-When the user mentions a commit, branch, or asks to verify recent changes, infer specifications from the git context and run Buggy investigations.
+When the user mentions a commit, a branch, or asks to verify recent changes,
+read the intent out of the git context and turn it into a specification.
 
 ## Triggering Phrases
 
@@ -15,42 +16,74 @@ When the user mentions a commit, branch, or asks to verify recent changes, infer
 
 ## Workflow
 
-### Step 1: Get the diff context
+### Step 1: Get the context
 
-Run `git diff HEAD~1 --stat` or `git diff main...HEAD` to see what changed.
-Read the commit message with `git log -1 --format=%B`.
+```bash
+git diff HEAD~1 --stat
+git diff main...HEAD
+git log -1 --format=%B
+```
 
-### Step 2: Infer intent from commit message
+### Step 2: Read the intent out of the message
 
-The commit message often reveals the specification:
+A commit message usually states the specification the author had in mind:
 
-| Commit message | Inferred postcondition |
-|---------------|----------------------|
-| "fix: handle empty array" | `items.length === 0 → result === defaultValue` |
-| "feat: add discount capping" | `result >= 0, discount <= 100` |
-| "refactor: extract helper" | Same behavior as before (no regression) |
-| "perf: optimize calculation" | Same outputs for same inputs (behavioral equivalence) |
+| Commit message | Inferred condition |
+|---|---|
+| "fix: handle empty list" | post `len(items) == 0 or result > 0` |
+| "feat: cap the discount" | post `result >= 0`, pre `percent_off <= 100` |
+| "fix: guard division by zero" | post `math.isfinite(result)` |
+| "refactor: extract helper" | behaviour unchanged - investigate with the pre-existing contract |
+| "perf: speed up calculation" | same outputs for the same inputs |
 
-### Step 3: Investigate changed functions
+A commit claiming to fix something is the strongest signal available: the
+author is asserting a property. Investigate that exact property. If it was
+recorded earlier, `buggy_recheck` confirms directly whether the fix held.
 
-For each function in the diff:
-1. Infer specs from commit message + code context
-2. Call `buggy_investigate` with those specs
-3. Report any proven bugs in the new code
+### Step 3: Investigate what the diff touched
 
-### Step 4: Report findings
+Conditions are Python expressions. `buggy_investigate` executes the module, so
+on infrastructure code confirm before running.
 
 ```
-Commit: "feat: add bulk discount for large orders"
-Changed: calculateSubtotal() in src/cart.ts
-
-Inferred spec:
-  Pre: items.length > 0, items.every(i => i.price >= 0)
-  Post: result >= 0
-
-Investigation result: ⚠️ Bug found
-  Input: [{price: 0.5, quantity: 15}] → Output: -22.5
-  The bulk discount (price - 2) goes negative for items under $2.
-
-Fix available (8% overfitting): Add guard `item.price > 2`
+buggy_investigate({
+  function: "calculate_subtotal",
+  file: "src/cart.py",
+  preconditions: ["len(items) > 0"],
+  postconditions: ["result >= 0"]
+})
 ```
+
+If the commit claims to fix a defect already in `.buggy/findings.db`, prefer:
+
+```
+buggy_recheck({ function: "calculate_subtotal" })
+```
+
+An outcome of `fixed` is direct evidence the commit did what it said. A
+`still_failing` outcome means it did not.
+
+### Step 4: Report
+
+```
+Commit: "feat: bulk discount for large orders"
+Changed: calculate_subtotal() in src/cart.py
+
+Inferred from the message:
+  pre   len(items) > 0
+  post  result >= 0
+
+Result: DEFECT PROVEN
+  Reproduce:  calculate_subtotal([{"price": 0.5, "quantity": 15}])
+  Result:     -22.5
+  Broke:      result >= 0
+  Cause:      the bulk discount subtracts 2 per unit, which goes negative
+              for items under $2
+
+Verified patch available: guard on item["price"] > 2.
+```
+
+If the status is `unconfirmed`, say the claimed property survived 300 generated
+inputs, which is evidence but not proof. If it is `no_valid_input`, the
+inferred precondition was too strict and the function never ran - loosen it and
+try again rather than reporting a pass.

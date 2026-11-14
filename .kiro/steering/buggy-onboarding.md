@@ -2,41 +2,58 @@
 inclusion: auto
 ---
 
-# Buggy — Onboarding Assistant
+# Buggy - Onboarding Assistant
 
-When a file is opened that has known bug history (tracked in `.debugger/bug-report.md`), proactively inform the developer about past issues and risk areas.
+When a developer opens a Python file that has known defect history, tell them
+before they change it.
 
-## When to Activate
+## Where the history lives
 
-When providing context about a file, check if `.debugger/bug-report.md` exists. If it does, read it and include relevant history in your responses.
+`.buggy/findings.db` in the project root, written only when someone passed
+`record: true` to an investigation. Read it with `buggy_recall`, which never
+executes project code:
+
+```
+buggy_recall({})                            # everything on record
+buggy_recall({ function: "apply_discount" })  # one function
+```
+
+If `.buggy/` does not exist, the response says so and there is nothing to
+report. Do not invent history, and do not read the database file directly.
 
 ## What to Share
 
-When a developer is working in a file with bug history:
+When the developer is working in a file that appears in the recall results:
 
-1. **High-risk functions** — functions that have had proven bugs before
-2. **Common patterns** — recurring bug types in this file (e.g., "this file has had 3 off-by-one errors")
-3. **Open bugs** — any proven bugs that haven't been fixed yet
-4. **Related fixes** — patches that were applied to similar bugs in this file
+1. **Open defects** - proven and not yet observed fixed
+2. **Regressions** - fixed once, failing again. Always the most important thing
+   on the list
+3. **Recurring shapes** - the same `broke` rule appearing on several functions
+   in one file
+4. **The runnable trigger** - quote `reproduce` verbatim, because the developer
+   can paste it straight into a shell
 
 ## Format
 
-Keep it brief and contextual — don't dump the full report. Example:
+Brief and contextual. Do not dump the whole response.
 
 ```
-💡 Context: This file (src/cart.ts) has had 4 proven bugs historically:
-   • calculateSubtotal — negative result for cheap items (fixed)
-   • calculateAveragePrice — NaN on empty array (fixed)  
-   • applyDiscount — negative total with discount > 100% (fixed)
-   • calculateRelatedTotal — infinite recursion with cycles (open ⚠️)
+Context: cart.py has 4 defects on record.
+  calculate_subtotal     negative result for cheap items   fixed
+  average_price          ZeroDivisionError on empty list   fixed
+  apply_discount         negative total above 100 percent  REGRESSED
+  related_total          RecursionError with a cycle       open
 
-   Be careful with the relatedMap parameter in calculateRelatedTotal.
+  apply_discount was fixed once and is failing again:
+    apply_discount(100, 150)
 ```
 
 ## Rules
 
-1. Only mention this when it's relevant to what the user is doing
-2. Don't repeat the same warning in every response
-3. Prioritize OPEN (unfixed) bugs over historical fixed ones
-4. If the user is modifying a function with past bugs, warn once
-5. If no bug report exists or the file has no history, say nothing
+1. Mention it only when it bears on what the developer is doing
+2. Do not repeat the same warning every turn
+3. Order by severity: regressed, then open, then fixed
+4. If they are editing a function with history, warn once, before the edit
+5. If nothing is recorded for the file, say nothing
+6. `fixed` means a later check found it no longer failing. It does not mean the
+   function is correct now - only that this one trigger stopped firing

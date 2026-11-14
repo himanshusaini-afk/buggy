@@ -1,65 +1,75 @@
 ---
 inclusion: fileMatch
-fileMatchPattern: "**/*.test.ts,**/*.spec.ts,**/*.test.js,**/*.spec.js"
+fileMatchPattern: "**/test_*.py,**/*_test.py,**/conftest.py"
 ---
 
-# Buggy — Specification Inference from Existing Tests
+# Buggy - Specification Inference from Existing Tests
 
-When a test file is loaded into context, use the test assertions to automatically infer formal specifications for the functions under test. This enables Buggy to find bugs that the tests don't cover.
+When a pytest file is in context, read its assertions as a partial
+specification. Tests cover the inputs the author thought of; Buggy generates
+the ones they did not. Combining the two finds defects that live between the
+test cases.
 
-## How to Extract Specifications from Tests
-
-### Pattern Recognition
+## Pattern Recognition
 
 | Test assertion | Inferred postcondition |
-|---------------|----------------------|
-| `expect(fn(x)).toBeGreaterThanOrEqual(0)` | `result >= 0` |
-| `expect(fn(x)).toBe(y)` | For specific x → `result === y` (edge case) |
-| `expect(fn(x)).not.toBeNull()` | `result !== null` |
-| `expect(fn(x)).not.toBeNaN()` | `!isNaN(result)` |
-| `expect(fn(x)).toHaveLength(n)` | `result.length === n` |
-| `expect(fn(x)).toThrow()` | For invalid input → function should throw |
-| `expect(fn(x)).toBeTruthy()` | `!!result === true` |
-| `expect(fn([])).toBe(0)` | `input.length === 0 → result === 0` |
-| `expect(fn(x)).toBeInstanceOf(Y)` | `result instanceof Y` |
+|---|---|
+| `assert fn(x) >= 0` | `result >= 0` |
+| `assert fn(x) == y` | for that x, `result == y` (an edge case, not a general rule) |
+| `assert fn(x) is not None` | `result is not None` |
+| `assert not math.isnan(fn(x))` | `math.isfinite(result)` |
+| `assert len(fn(x)) == n` | `len(result) == n` |
+| `assert isinstance(fn(x), int)` | `isinstance(result, int)` |
+| `assert fn(x)` | `bool(result)` |
+| `assert fn([]) == 0` | `len(items) > 0 or result == 0` |
+| `pytest.raises(ValueError)` | that input is outside the contract - a **precondition**, not a bug |
+| `pytest.approx(y)` | a tolerance, so avoid exact equality in the postcondition |
 
-### Workflow
+`pytest.raises` is the one most often misread. A test asserting that bad input
+raises is telling you the function's domain. Turn it into a precondition
+excluding that input, so the fuzzer spends its budget inside the contract
+instead of re-proving the documented raise.
 
-1. When you see a test file, extract all `expect()` assertions
-2. Group them by the function being tested
-3. Separate assertions into:
-   - **Preconditions** (from describe/it block names, setup code)
-   - **Postconditions** (from expect assertions)
-   - **Edge cases** (from specific value tests like `toBe(0)`)
-4. When the user asks to debug or investigate, pass these inferred specs to `buggy_investigate`
+## Workflow
 
-### Example
+1. Collect the `assert` statements and `pytest.raises` blocks, and group them by
+   the function under test.
+2. Read `@pytest.mark.parametrize` lists - they show the input domain the author
+   considered valid, which is good raw material for preconditions.
+3. Read fixtures in the file and in `conftest.py`: a fixture is the author's idea
+   of a well-formed input, and makes a good `receiver` expression for a method.
+4. Separate what you find into preconditions (domain), postconditions
+   (guarantees), and single-point edge cases.
+5. Drop the single-point cases. A postcondition true only for one input is not a
+   specification and will produce a defect on the first other input.
+6. Pass the rest to `buggy_investigate` as Python expressions.
 
-```typescript
-// Test file says:
-describe('calculateTotal', () => {
-  it('returns 0 for empty array', () => {
-    expect(calculateTotal([])).toBe(0);
-  });
-  it('returns positive for valid items', () => {
-    expect(calculateTotal([{price: 10, qty: 2}])).toBeGreaterThan(0);
-  });
-  it('handles single item', () => {
-    expect(calculateTotal([{price: 5, qty: 1}])).toBe(5);
-  });
-});
+## Example
+
+```python
+# test_cart.py
+@pytest.mark.parametrize("items,expected", [([], 0), ([{"price": 5, "qty": 1}], 5)])
+def test_total(items, expected):
+    assert calculate_total(items) == expected
+
+def test_rejects_negative_price():
+    with pytest.raises(ValueError):
+        calculate_total([{"price": -1, "qty": 1}])
 ```
 
+Inferred:
+
 ```
-// Inferred specification:
-preconditions: ["Array.isArray(items)"]
-postconditions: [
-  "items.length === 0 ? result === 0 : result > 0",
-  "result >= 0",
-  "typeof result === 'number'"
-]
+preconditions:  ["all(i['price'] >= 0 for i in items)"]
+postconditions: ["result >= 0", "len(items) > 0 or result == 0"]
 ```
 
-### Key Insight
+The precondition comes from the `pytest.raises` test, not from a guess. The
+exact-equality cases were dropped; `result >= 0` is what generalises.
 
-Tests only cover the inputs the developer thought of. Buggy fuzzes with thousands of inputs the developer DIDN'T think of. By combining the test-inferred specs with Buggy's fuzzer, you catch bugs that live between the test cases.
+## After investigating
+
+If a defect is proven, the failing input is a test case the suite was missing.
+Offer to add it. `buggy export-tests` writes recorded defects out as pytest
+functions directly, so a proven defect can become a regression test without
+being retyped.

@@ -2,123 +2,188 @@
 inclusion: manual
 ---
 
-# Buggy — Type Narrowing Suggestions
+# Buggy - Preventing a Proven Defect by Construction
 
-When Buggy proves a bug exists, suggest TypeScript type-level fixes that would prevent the bug at compile time — moving the check from runtime to the type system.
+When Buggy proves a defect, the runtime guard is the quick fix. The better
+question is whether the bad input could have been impossible to pass in.
+
+Python's annotations are not enforced at runtime, so a type hint alone prevents
+nothing. What works is validating once at the boundary and carrying a value
+whose existence proves it was checked.
 
 ## Triggering Phrases
 
-- "how can I prevent this at the type level?"
+- "how do I prevent this properly?"
+- "stop this class of bug"
 - "make this type-safe"
-- "prevent this class of bug"
 - "strengthen the types"
 
 ## Workflow
 
-### After a Bug is Proven
+After `buggy_investigate` returns a certificate, look at the trigger input and
+ask where it entered the system. The guard belongs at that boundary, not in
+every function downstream.
 
-When `buggy_investigate` returns a proof certificate, analyze the root cause and suggest type-level prevention:
+## Pattern: Unbounded numeric input
 
-### Pattern: Unbounded Numeric Input
+**Proven:** `apply_discount(100, 150)` returns `-50`, breaking `result >= 0`.
 
-**Bug:** `discountPercent > 100` causes negative result
+A guard inside `apply_discount` fixes this function. Every other function
+taking a percentage still has the bug.
 
-**Type fix:** Branded type
+```python
+from typing import NewType
 
-```typescript
-type Percent = number & { readonly __brand: unique symbol };
+Percent = NewType("Percent", float)
 
-function asPercent(value: number): Percent {
-  if (value < 0 || value > 100) throw new RangeError(`${value} is not a valid percent`);
-  return value as Percent;
-}
+def as_percent(value: float) -> Percent:
+    """Validate once, at the edge where the number arrives."""
+    if not 0 <= value <= 100:
+        raise ValueError(f"{value} is not a percentage")
+    return Percent(value)
 
-function applyDiscount(price: number, discount: Percent): number {
-  return price - (price * discount / 100); // Now safe — discount is always 0-100
-}
+def apply_discount(price: float, percent_off: Percent) -> float:
+    return price - price * percent_off / 100
 ```
 
-### Pattern: Division by Zero (Empty Array)
+A `Percent` can only come from `as_percent`, so every caller has been checked.
+A type checker flags a raw `float` passed in; at runtime the validation already
+happened.
 
-**Bug:** `items.length === 0` causes `NaN`
+## Pattern: Division by an empty collection
 
-**Type fix:** NonEmpty array type
+**Proven:** `average([])` raises `ZeroDivisionError`.
 
-```typescript
-type NonEmptyArray<T> = [T, ...T[]];
+```python
+from typing import Sequence, TypeVar
 
-function calculateAverage(items: NonEmptyArray<CartItem>): number {
-  const total = items.reduce((sum, item) => sum + item.price, 0);
-  return total / items.length; // Safe — items.length >= 1
-}
+T = TypeVar("T")
+
+def average(values: Sequence[float]) -> float | None:
+    """None is an honest answer. The average of nothing is not a number."""
+    if not values:
+        return None
+    return sum(values) / len(values)
 ```
 
-### Pattern: Nullable Return Without Check
+Returning `None` forces the caller to decide what an empty input means. If the
+caller genuinely cannot handle it, make non-emptiness the precondition and
+raise instead - but then say so in the docstring, so Buggy reads it as the
+contract rather than a defect.
 
-**Bug:** `result` is `null` but caller doesn't check
+## Pattern: Money as a float
 
-**Type fix:** Explicit Result type
+**Proven:** repeated addition of `0.1` drifts, breaking an exact-total
+postcondition.
 
-```typescript
-type Result<T, E = Error> = { ok: true; value: T } | { ok: false; error: E };
+```python
+from decimal import Decimal
 
-function findUser(id: string): Result<User, 'not_found' | 'invalid_id'> {
-  // Caller MUST handle the error case — TypeScript enforces it
-}
+def total(prices: list[Decimal]) -> Decimal:
+    return sum(prices, Decimal("0"))
 ```
 
-### Pattern: Non-Deterministic Behavior
+`Decimal` makes the drift impossible rather than tolerated. If floats must
+stay, state the tolerance in the postcondition instead of pretending to
+exactness.
 
-**Bug:** Function uses `Math.random()` making it non-deterministic
+## Pattern: A value that may be absent
 
-**Type fix:** Explicit effect type or dependency injection
+**Proven:** the caller assumed a value and got `None`, raising `AttributeError`.
 
-```typescript
-interface RandomSource {
-  next(): number; // 0-1
-}
+```python
+from dataclasses import dataclass
 
-// Now the randomness is injectable and testable
-function calculateLoyaltyPoints(total: number, random: RandomSource): number {
-  const bonus = random.next() > 0.5 ? 10 : 0;
-  return Math.floor(total / 10) + bonus;
-}
+@dataclass(frozen=True)
+class Found:
+    user: User
+
+@dataclass(frozen=True)
+class NotFound:
+    reason: str
+
+def find_user(user_id: str) -> Found | NotFound:
+    ...
 ```
 
-### Pattern: Integer Overflow
+A union the caller must narrow beats a bare `Optional` that is easy to forget.
+`match` or an `isinstance` check makes the missing case visible.
 
-**Bug:** `price * quantity` exceeds `Number.MAX_SAFE_INTEGER`
+## Pattern: A constrained set of values
 
-**Type fix:** SafeInt branded type with validation
+**Proven:** an unexpected status string fell through every branch and returned
+`None`.
 
-```typescript
-type SafeInt = number & { readonly __safeInt: unique symbol };
+```python
+from enum import Enum
 
-function asSafeInt(value: number): SafeInt {
-  if (!Number.isSafeInteger(value)) throw new RangeError(`${value} exceeds safe integer range`);
-  return value as SafeInt;
-}
-
-function multiply(a: SafeInt, b: SafeInt): SafeInt {
-  const result = a * b;
-  return asSafeInt(result); // Throws if overflow occurs
-}
+class Status(Enum):
+    ACTIVE = "active"
+    CLOSED = "closed"
 ```
+
+An `Enum` makes an invalid status unconstructable. With `Literal["active",
+"closed"]` a type checker can also prove the match is exhaustive.
+
+## Pattern: Non-determinism
+
+**Proven:** the same input gave different answers across runs (found with
+`--determinism`).
+
+```python
+from typing import Protocol
+
+class RandomSource(Protocol):
+    def random(self) -> float: ...
+
+def loyalty_points(total: float, rng: RandomSource) -> int:
+    bonus = 10 if rng.random() > 0.5 else 0
+    return int(total // 10) + bonus
+```
+
+Injecting the randomness makes the function deterministic for a fixed source,
+which is what makes it testable at all.
+
+## Pattern: Validated construction
+
+**Proven:** an object was built in an invalid state and failed later, far from
+the cause.
+
+```python
+@dataclass(frozen=True)
+class CartItem:
+    price: Decimal
+    quantity: int
+
+    def __post_init__(self) -> None:
+        if self.price < 0:
+            raise ValueError("price must not be negative")
+        if self.quantity < 1:
+            raise ValueError("quantity must be at least 1")
+```
+
+`frozen=True` means it cannot drift into invalidity afterwards. This also helps
+Buggy: an invalid receiver now fails loudly at construction instead of
+producing a confusing defect in an unrelated method.
 
 ## Presentation Format
 
-When suggesting type narrowing, present it as:
-
 ```
-🛡️ Type-Level Prevention
+Preventing this by construction
 
-The bug (discountPercent > 100 → negative result) can be prevented at compile time:
+Proven:  apply_discount(100, 150) returns -50, breaking result >= 0
 
-Before: function applyDiscount(price: number, discount: number)
-After:  function applyDiscount(price: number, discount: Percent)
+Runtime fix:    clamp percent_off inside apply_discount
+Structural fix: accept Percent instead of float, validated by as_percent
+                at the point the number enters the system
 
-This means any caller passing an unchecked number will get a TypeScript error.
-The validation happens once at the system boundary, not in every function.
+The runtime fix repairs this function. The structural one also covers the
+three other functions taking a percentage, and moves the check to the
+boundary where the value arrives.
 
-Want me to apply this type narrowing?
+Want the runtime guard now, the structural change, or both?
 ```
+
+Offer both and let the user choose. A verified patch from `buggy_repair` is
+ready to apply today; the structural change touches callers and is a larger
+decision.
