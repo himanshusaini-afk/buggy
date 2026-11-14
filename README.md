@@ -105,27 +105,38 @@ Buggy now works automatically inside Kiro — your team doesn't need to run comm
 
 ### How It Works
 
-Buggy ships with 7 Kiro hooks that fire on IDE events. When a hook triggers, Kiro's agent calls Buggy's MCP tools behind the scenes, interprets the results, and either reports findings or applies fixes automatically.
+Buggy ships with 7 Kiro hooks that fire on IDE events. When a hook triggers,
+Kiro's agent calls Buggy's MCP tools behind the scenes and reports what it
+finds. **Nothing is applied without you choosing it.**
 
-### Hooks (Automatic Bug Detection)
+The hooks target the Python package in [`buggy-py/`](buggy-py/) and call its six
+tools. If you have the Node server configured instead, its tool names differ and
+the hooks will not resolve.
 
-| Hook | Trigger | What It Does |
-|------|---------|--------------|
-| `buggy-on-save` | File saved | Analyzes the saved file for bugs immediately |
-| `buggy-post-write` | Kiro writes code | Verifies AI-generated code for correctness |
-| `buggy-pre-task` | Before spec task execution | Scans relevant files before changes are made |
-| `buggy-auto-fix` | Agent completes work | Self-healing loop — re-checks and fixes (max 3 iterations) |
-| `buggy-deep-scan` | User-triggered | Full project scan across all source files |
-| `buggy-spec-evolution` | After task completion | Verifies new implementations match specifications |
-| `buggy-recall-first` | Code-change request submitted | Consults the Watchlist memory (`buggy_recall`) before editing so proven lessons guide the fix |
+### Hooks
+
+Hooks that fire **automatically** only call tools that cannot execute your code:
+`buggy_functions` parses, `buggy_recall` reads the recorded history. The four
+tools that prove a defect do so by importing the target module, which runs its
+top-level code — so they are offered, never invoked unprompted.
+
+| Hook | Trigger | What it does | Executes your code? |
+|------|---------|--------------|---------------------|
+| `buggy-on-save` | Python file saved | Lists the file's functions and flags risky shapes | No |
+| `buggy-post-write` | Kiro writes code | Confirms the new code parses, names any concern | No |
+| `buggy-pre-task` | Before a spec task | Inventories the task's files and recalls their defect history | No |
+| `buggy-auto-fix` | Agent finishes work | Reviews what changed, recalls history, offers to investigate | No |
+| `buggy-spec-evolution` | After a task completes | Infers pre/postconditions from the new code, offers to prove them | No |
+| `buggy-recall-first` | Code-change request | Checks whether a defect is already on record for the target | No |
+| `buggy-deep-scan` | User-triggered | Project-wide hunt — agrees scope with you, then investigates | **Yes** |
 
 ### What Developers Experience
 
-- Ask Kiro to fix something → it first recalls what worked and what failed on that code before
-- Save a file → bugs are surfaced in seconds, no command needed
-- Kiro writes code → Buggy verifies it before you even review
-- Start a spec task → risky files are pre-scanned for existing issues
-- Complete a task → implementation is verified against the spec
+- Ask Kiro to fix something → it first checks whether that defect was already proven here, and whether a past fix regressed
+- Save a file → risky functions are named in seconds, with nothing executed
+- Kiro writes code → the change is parsed and concerns are flagged before you review
+- Start a spec task → the files it touches arrive with their defect history attached
+- Trigger a deep scan → you agree which paths are safe to execute before anything runs
 
 ### Deploying to Your Team
 
@@ -138,9 +149,22 @@ git commit -m "Add Buggy hooks and steering files for automatic bug detection"
 
 ### Steering Files (Advanced Workflows)
 
-Buggy includes 9 steering files that guide Kiro's behavior during debugging workflows. Five are always active (cross-file impact analysis, bug trend tracking, onboarding warnings, core debugging workflow, and the watchlist experience memory), and four activate on demand for PR reviews, git-diff analysis, spec inference, and TypeScript type narrowing suggestions.
+Buggy includes 8 steering files that guide Kiro's behaviour during debugging.
 
-See the [Usage Guide](docs/USAGE-GUIDE.md) for the full list and customization options.
+| File | Activates | Covers |
+|---|---|---|
+| `buggy-debugging` | always | the core workflow: which tool to call, how to read each status |
+| `buggy-cross-file-impact` | on a matching request | checking callers before changing a function |
+| `buggy-bug-trends` | on a matching request | reading `.buggy/findings.db`, and why regressions are the signal |
+| `buggy-onboarding` | on a matching request | warning about a file's defect history before it is edited |
+| `buggy-pr-review` | manually | proof-backed review of a branch or diff |
+| `buggy-git-diff-specs` | manually | inferring a specification from a commit message |
+| `buggy-type-narrowing` | manually | preventing a proven defect by construction, not just guarding it |
+| `buggy-spec-from-tests` | on opening a pytest file | turning assertions into pre/postconditions |
+
+Specifications in all of them are **Python** expressions, matching the
+`buggy-py` evaluator. See the [Usage Guide](docs/USAGE-GUIDE.md) for
+customization options.
 
 ---
 
