@@ -48,40 +48,88 @@ rejected all 21 candidate patches across both languages, scoring the correct
 ### Installing the Python package
 
 No Node, no npm, and no dependencies — Python 3.10 or newer is the whole
-requirement. A virtualenv is recommended, because the npm package installs
-binaries with the same two names (`buggy`, `buggy-mcp`) and whichever lands on
-`PATH` first wins:
+requirement.
+
+Install into a virtualenv and link the two commands onto your `PATH`. The
+virtualenv keeps the tool from touching the environment of whatever project you
+point it at; the symlinks mean nothing has a venv path baked into it, so the
+venv can be rebuilt without breaking your editor config:
 
 ```bash
 python3 -m venv ~/.buggy-venv
 ~/.buggy-venv/bin/pip install -e buggy-py/
 
-~/.buggy-venv/bin/buggy functions src/pricing.py
-~/.buggy-venv/bin/buggy investigate apply_discount -f src/pricing.py \
+mkdir -p ~/.local/bin
+ln -sf ~/.buggy-venv/bin/buggy     ~/.local/bin/buggy
+ln -sf ~/.buggy-venv/bin/buggy-mcp ~/.local/bin/buggy-mcp
+```
+
+Check `~/.local/bin` is on your `PATH` (`echo $PATH`), then from any directory:
+
+```bash
+buggy functions src/pricing.py
+buggy investigate apply_discount -f src/pricing.py \
   --pre 'price >= 0' --post 'result >= 0'
 ```
 
-As an MCP server, point your client at the absolute path so it does not depend
-on `PATH` order:
+### Using it from an editor, in every project
+
+An MCP server registered in a **workspace** config only exists for that one
+folder. Put it in the **user** config instead and every project gets it with no
+per-project setup. For Kiro:
+
+| File | Scope |
+|---|---|
+| `~/.kiro/settings/mcp.json` | every workspace — **use this one** |
+| `<project>/.kiro/settings/mcp.json` | that project only, and it overrides the user config |
 
 ```json
 {
   "mcpServers": {
     "buggy": {
-      "command": "/Users/you/.buggy-venv/bin/buggy-mcp",
+      "command": "/Users/you/.local/bin/buggy-mcp",
+      "args": [],
+      "env": {},
+      "disabled": false,
       "autoApprove": ["buggy_functions", "buggy_recall"]
     }
   }
 }
 ```
 
+An absolute path rather than a bare `buggy-mcp` on purpose: npm's global prefix
+usually sits ahead of `~/.local/bin` on `PATH`, so if the npm package is ever
+installed its `buggy-mcp` would shadow this one. The two are unrelated programs
+that happen to share a name.
+
 `buggy_functions` and `buggy_recall` only read your code. The other four tools
-(`buggy_investigate`, `buggy_repair`, `buggy_scan`, `buggy_recheck`) import the
-target module to prove a defect by executing it, which runs its top-level code —
-so leaving them out of `autoApprove` means you are asked first. Full options,
-including a no-install variant, are in
+(`buggy_investigate`, `buggy_repair`, `buggy_scan`, `buggy_recheck`) prove a
+defect by importing the target module and executing it, which runs its
+top-level code — so leaving them out of `autoApprove` means you are asked
+first. Full options, including a no-install variant, are in
 [`buggy-py/mcp-config.example.json`](buggy-py/mcp-config.example.json) and
 [`buggy-py/README.md`](buggy-py/README.md).
+
+### If an agent tells you to install Node
+
+It has read the root `package.json`, which describes the **TypeScript**
+implementation: `engines.node >= 18`, two `bin` entries compiled by `tsc`, and
+native N-API addons (`tree-sitter`, `better-sqlite3`). All of that is true, and
+none of it applies to `buggy-py/`, which imports nothing outside the standard
+library. Confirm with:
+
+```bash
+cd buggy-py && python3 -m unittest discover -s tests -t .
+```
+
+That suite passes in full on a machine with no Node installed at all.
+
+Do not install the npm package to get Python support. It does prove bugs in
+Python, but its specifications are compiled as JavaScript whatever the target
+language, so a Python-syntax condition such as `len(result) > 0` raises a
+`SyntaxError`, is discarded, and the investigation reports no bug found — which
+is indistinguishable from genuine safety. See
+[Working on a Python project?](#working-on-a-python-project).
 
 ## Quick Start
 
