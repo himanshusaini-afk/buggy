@@ -1,14 +1,28 @@
-# Dependencies
-node_modules/
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
 
-# Build output
+# Packaging and editable-install metadata
+*.egg-info/
+build/
 dist/
+.eggs/
 
-# Package tarballs
-*.tgz
+# Environments
+.venv/
+venv/
+env/
 
-# Buggy working directory (generated data, graph database)
-.debugger/
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Recorded findings (buggy investigate --record)
+.buggy/
 
 # Environment variables and secrets
 .env
@@ -26,31 +40,19 @@ Desktop.ini
 *.swo
 *~
 
-# Test coverage
-coverage/
-
-# Vitest cache
-.vitest/
-
-# TypeScript incremental compilation
-*.tsbuildinfo
-
 # Logs
 *.log
-npm-debug.log*
 
 # Kiro local state (per-developer, not shared)
 .kiro/cache/
 .kiro/state/
 .kiro/.meta.json
-# Local MCP server config — contains machine-specific paths (use mcp-config.example.json as the template)
+
+# Local MCP server config - holds machine-specific paths.
+# Use mcp-config.example.json as the template.
 .kiro/settings/
 
 # SQLite temporary files
 *.db-journal
 *.db-wal
 *.db-shm
-
-# Generated demo report (rewritten on every `npm test` run with fresh
-# timestamps/timings — tracking it just produces churn in every diff)
-tests/demo/DATASCIENCE-REPORT.md

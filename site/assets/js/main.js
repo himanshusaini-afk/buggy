@@ -212,37 +212,27 @@ const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
   const PAUSE = (ms) => ({ pause: ms });
 
   const script = [
-    S('$ ', 'dim'), S('buggy investigate splitExpense --file src/expenses.ts\n', 'hl'),
+    S('$ ', 'dim'), S("buggy investigate budget_usage -f budget.py\n", 'hl'),
     PAUSE(380),
     S('\n'),
-    S('✓', 'ok'), S(' Debugger initialized\n'),
-    PAUSE(160),
-    S('✓', 'ok'), S(' Parsed src/expenses.ts  '), S('1,284 nodes · 0 errors\n', 'dim'),
-    PAUSE(260),
-    S('\n  Proving  '), S('generating edge-case inputs…\n', 'dim'),
-    PAUSE(420),
-    S('  → '), S('splitExpense(0, 0)', 'key'), S('  executed in child process\n', 'dim'),
-    PAUSE(300),
-    S('\n  Investigation Report\n', 'hl'),
+    S('  budget_usage  '), S('(budget.py)\n', 'dim'),
+    PAUSE(200),
     S('  ─────────────────────────────────────\n', 'dim'),
-    S('  Status  '), S('confirmed_and_repaired\n', 'ok'),
+    S('  status  '), S('proven\n', 'ok'),
     PAUSE(260),
-    S('\n  Proof-of-Failure Certificate\n', 'hl'),
-    S('    Violated   '), S('isFinite(result)\n', 'key'),
-    S('    Input      '), S('[0, 0]\n', 'warn'),
-    S('    Output     '), S('NaN\n', 'bad'),
+    S('\n  Certificate of failure\n', 'hl'),
+    S('    input      '), S('[0, 0]\n', 'warn'),
+    S('    broke      '), S('must not raise ZeroDivisionError\n', 'key'),
+    S('    detail     '), S('ZeroDivisionError: division by zero\n', 'bad'),
     PAUSE(340),
-    S('    ✓ Admissible     '), S('preconditions hold\n', 'dim'),
+    S('    ✓ admissible    '), S('the input satisfied every precondition\n', 'dim'),
     PAUSE(220),
-    S('    ✓ Sound          '), S('NaN violates the postcondition\n', 'dim'),
+    S('    ✓ sound         '), S('re-observed in a fresh process\n', 'dim'),
     PAUSE(220),
-    S('    ✓ Reproducible   '), S('3/3 re-runs failed identically\n', 'dim'),
+    S('    ✓ reproduced    '), S('3/3 re-runs failed identically\n', 'dim'),
     PAUSE(380),
-    S('\n  Approved Patches (1)\n', 'hl'),
-    S('    ✓', 'ok'), S(' overfitting '), S('12.4%\n', 'ok'),
-    S('      if (people === 0) {\n', 'key'),
-    S('        return 0;\n', 'key'),
-    S('      }\n', 'key'),
+    S('\n  Call it yourself to see it fail:\n', 'hl'),
+    S('    budget_usage(0, 0)\n', 'key'),
   ];
 
   // Reduced motion: render it all at once, no typing.
@@ -470,50 +460,6 @@ const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
   });
 
   select(0);
-})();
-
-/* ------------------------------------------------------------
-   66-dimension vector grid + overfitting gauge
-   ------------------------------------------------------------ */
-(function vector() {
-  const grid  = $('#vec');
-  const fill  = $('#gaugeFill');
-  const value = $('#gaugeVal');
-  if (!grid) return;
-
-  const SCORE = 0.124;   // the score shown in the terminal transcript
-  const ROWS = 6, COLS = 11;
-  const rowClass = ['g', 'd', 'r', 'g', 'd', 'r']; // gen/del/remain, raw then normalised
-
-  const frag = document.createDocumentFragment();
-  for (let row = 0; row < ROWS; row++) {
-    for (let col = 0; col < COLS; col++) {
-      const cell = document.createElement('i');
-      // Leave some cells empty so it reads as data rather than decoration.
-      if (Math.random() > 0.34) cell.className = rowClass[row];
-      cell.style.setProperty('--d', (row * COLS + col) * 11 + 'ms');
-      frag.appendChild(cell);
-    }
-  }
-  grid.appendChild(frag);
-
-  const play = () => {
-    grid.classList.add('is-on');
-    if (!fill) return;
-    // Gauge is clamped to the 0–1 probability range; 0.5 is the reject threshold.
-    setTimeout(() => { fill.style.width = (SCORE * 100).toFixed(1) + '%'; }, 240);
-    if (value) value.textContent = SCORE.toFixed(3);
-  };
-
-  if (REDUCED || !('IntersectionObserver' in window)) { play(); return; }
-
-  const io = new IntersectionObserver((entries) => {
-    if (!entries[0].isIntersecting) return;
-    play();
-    io.disconnect();
-  }, { threshold: 0.3 });
-
-  io.observe(grid);
 })();
 
 /* ------------------------------------------------------------

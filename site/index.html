@@ -5,22 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Buggy — the debugger that proves the bug before it fixes it</title>
 
-<meta name="description" content="Buggy is a proof-carrying debugger. It executes your code to find a real failing input, verifies the failure three ways, generates candidate patches, and scores every patch for overfitting before showing it to you.">
+<meta name="description" content="Buggy is a proof-carrying debugger for Python. It executes your code to find a real failing input, verifies the failure three ways, then proposes fixes and verifies each one by running it. Pure Python, no dependencies.">
 <meta name="theme-color" content="#0a0c10">
 <meta name="color-scheme" content="dark">
 
 <meta property="og:type" content="website">
 <meta property="og:title" content="Buggy — the debugger that proves the bug before it fixes it">
-<meta property="og:description" content="Executes your code to find a real failing input, verifies it three ways, then rejects patches that only work on the example that caught them.">
+<meta property="og:description" content="Executes your Python to find a real failing input, verifies it three ways, then verifies every proposed fix by running it. No dependencies.">
 <meta property="og:url" content="https://himanshusaini-afk.github.io/buggy/">
 <!-- Absolute URLs: social scrapers do not resolve relative paths. -->
 <meta property="og:image" content="https://himanshusaini-afk.github.io/buggy/assets/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Buggy — most tools guess, Buggy proves. Beside it a proof certificate showing input [0, 0], output NaN, and three passed checks: admissible, sound, reproducible.">
+<meta property="og:image:alt" content="Buggy — most tools guess, Buggy proves. Beside it a proof certificate showing input [0, 0], a ZeroDivisionError, and three passed checks: admissible, sound, reproducible.">
 <meta property="og:site_name" content="Buggy">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Buggy — proof-carrying debugging">
+<meta name="twitter:title" content="Buggy — proof-carrying debugging for Python">
 <meta name="twitter:description" content="Most tools guess. Buggy executes, then proves.">
 <meta name="twitter:image" content="https://himanshusaini-afk.github.io/buggy/assets/og.png">
 <meta name="twitter:image:alt" content="Buggy — a debugger that executes your code to find the input that breaks it.">
@@ -54,7 +54,7 @@
     <nav class="nav__links" aria-label="Sections">
       <a href="#how">How it works</a>
       <a href="#proof">Proof</a>
-      <a href="#overfit">Overfitting</a>
+      <a href="#repair">Repair</a>
       <a href="#use">Use it</a>
       <a href="#install">Install</a>
       <a href="#status">Status</a>
@@ -73,7 +73,7 @@
   <div class="nav__mobile" id="nav-mobile" hidden>
     <a href="#how">How it works</a>
     <a href="#proof">Proof</a>
-    <a href="#overfit">Overfitting</a>
+    <a href="#repair">Repair</a>
     <a href="#use">Use it</a>
     <a href="#install">Install</a>
     <a href="#status">Status</a>
@@ -92,7 +92,7 @@
   <div class="wrap hero__inner">
     <div class="hero__copy">
       <p class="eyebrow reveal">
-        <span class="dot"></span> Proof-carrying debugging
+        <span class="dot"></span> Proof-carrying debugging for Python
       </p>
 
       <h1 class="hero__title reveal" data-reveal-delay="1">
@@ -102,8 +102,8 @@
 
       <p class="hero__lede reveal" data-reveal-delay="2">
         Buggy runs your function against the inputs most likely to break it. When one does,
-        it verifies the failure three separate ways before calling it a bug — then writes
-        candidate fixes and scores each one for overfitting. It never edits your code on its own.
+        it verifies the failure three separate ways before calling it a bug — then proposes
+        fixes and verifies each one by running it. It never edits your code on its own.
       </p>
 
       <div class="hero__actions reveal" data-reveal-delay="3">
@@ -111,11 +111,11 @@
           Install it
           <svg viewBox="0 0 16 16" class="icon" aria-hidden="true"><path d="M8 1v10m0 0l4-4m-4 4L4 7M2 14h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </a>
-        <a class="btn btn--ghost" href="#how">See the pipeline</a>
+        <a class="btn btn--ghost" href="#how">See how it works</a>
       </div>
 
       <p class="hero__meta reveal" data-reveal-delay="4">
-        Node 18+ · TypeScript &amp; Python · runs fully offline · MIT
+        Python 3.10+ · zero dependencies · runs fully offline · MIT
       </p>
     </div>
 
@@ -131,26 +131,21 @@
         <!-- Full transcript for assistive tech, since the visible one is animated -->
         <div class="sr-only">
           <p>Example session transcript:</p>
-          <pre>$ buggy investigate splitExpense --file src/expenses.ts
+          <pre>$ buggy investigate budget_usage -f budget.py
 
-Debugger initialized.
-Parsed src/expenses.ts — 1,284 CST nodes, 0 syntax errors.
-Proving: generating edge-case inputs.
-Executed splitExpense(0, 0) in a child process.
+  budget_usage  (budget.py)
+  status      proven
 
-Investigation Report
-Status: confirmed_and_repaired
+  Certificate of failure
+    input       [0, 0]
+    broke       must not raise ZeroDivisionError
+    detail      ZeroDivisionError: division by zero
+    admissible  the input satisfied every precondition
+    sound       the failure was re-observed in a fresh process
+    reproduced  3 of 3 re-runs failed identically
 
-Proof-of-Failure Certificate
-  Violated postcondition: isFinite(result)
-  Input: [0, 0]
-  Observed output: NaN
-  Admissible: inputs satisfy all preconditions
-  Sound: NaN genuinely violates the postcondition
-  Reproducible: 3 of 3 re-executions failed identically
-
-Approved patches: 1, with overfitting probability 12.4 percent.
-  if (people === 0) { return 0; }</pre>
+  Call it yourself to see it fail:
+    budget_usage(0, 0)</pre>
         </div>
       </div>
 
@@ -169,11 +164,11 @@ Approved patches: 1, with overfitting probability 12.4 percent.
 <!-- ───────────────────────────── STATS ───────────────────────────── -->
 <section class="stats" aria-label="Project numbers">
   <div class="wrap stats__grid">
-    <div class="stat reveal"><b><span class="count" data-to="4">0</span></b><span>pipeline phases</span></div>
+    <div class="stat reveal"><b><span class="count" data-to="5">0</span></b><span>oracles</span></div>
     <div class="stat reveal" data-reveal-delay="1"><b><span class="count" data-to="3">0</span></b><span>proof pillars</span></div>
-    <div class="stat reveal" data-reveal-delay="2"><b><span class="count" data-to="66">0</span></b><span>classifier dimensions</span></div>
-    <div class="stat reveal" data-reveal-delay="3"><b><span class="count" data-to="10">0</span></b><span>MCP tools</span></div>
-    <div class="stat reveal" data-reveal-delay="4"><b><span class="count" data-to="931">0</span></b><span>tests in the suite</span></div>
+    <div class="stat reveal" data-reveal-delay="2"><b><span class="count" data-to="7">0</span></b><span>CLI commands</span></div>
+    <div class="stat reveal" data-reveal-delay="3"><b><span class="count" data-to="6">0</span></b><span>MCP tools</span></div>
+    <div class="stat reveal" data-reveal-delay="4"><b><span class="count" data-to="233">0</span></b><span>tests in the suite</span></div>
   </div>
 </section>
 
@@ -204,9 +199,18 @@ Approved patches: 1, with overfitting probability 12.4 percent.
           <li>A concrete input is produced that actually breaks the function.</li>
           <li>The failure is re-run and re-checked before it is reported at all.</li>
           <li>Fixes are derived from the failing input, not from a generic template.</li>
-          <li>Every patch carries an overfitting score. High scorers are rejected outright.</li>
+          <li>Every fix is applied and executed, so the verdict rests on behaviour.</li>
         </ul>
       </div>
+    </div>
+
+    <div class="note reveal">
+      <strong>Three statuses, kept apart on purpose.</strong>
+      <code>proven</code> means a failing input survived all three checks.
+      <code>unconfirmed</code> means nothing failed within the budget, which is
+      <em>not</em> a proof of safety. <code>no_valid_input</code> means the preconditions
+      rejected every candidate, so the function never ran and nothing was learned.
+      Collapsing the last two into a pass is how a tool starts lying to you.
     </div>
   </div>
 </section>
@@ -215,19 +219,19 @@ Approved patches: 1, with overfitting probability 12.4 percent.
 <section class="section section--alt" id="how">
   <div class="wrap">
     <div class="sec-head">
-      <h2 class="reveal">Four phases, run in order</h2>
+      <h2 class="reveal">Four steps, run in order</h2>
       <p class="reveal" data-reveal-delay="1">
-        An orchestrator drives each phase and stamps a timeline entry as it completes. If
-        anything throws, the run halts and keeps whatever it had already produced.
+        Each step maps to a command you can run on its own. Nothing is hidden behind an
+        orchestrator, and nothing is written to your files at any point.
       </p>
     </div>
 
     <div class="pipe" id="pipe">
       <div class="pipe__rail" aria-hidden="true"><span class="pipe__fill" id="pipeFill"></span></div>
 
-      <div class="pipe__tabs" role="tablist" aria-label="Pipeline phases">
+      <div class="pipe__tabs" role="tablist" aria-label="Pipeline steps">
         <button class="pipe__tab is-active" role="tab" id="ph-1" aria-controls="pp-1" aria-selected="true" data-phase="1">
-          <span class="pipe__n">01</span><span class="pipe__name">Parse</span>
+          <span class="pipe__n">01</span><span class="pipe__name">Inspect</span>
         </button>
         <button class="pipe__tab" role="tab" id="ph-2" aria-controls="pp-2" aria-selected="false" tabindex="-1" data-phase="2">
           <span class="pipe__n">02</span><span class="pipe__name">Prove</span>
@@ -236,64 +240,66 @@ Approved patches: 1, with overfitting probability 12.4 percent.
           <span class="pipe__n">03</span><span class="pipe__name">Repair</span>
         </button>
         <button class="pipe__tab" role="tab" id="ph-4" aria-controls="pp-4" aria-selected="false" tabindex="-1" data-phase="4">
-          <span class="pipe__n">04</span><span class="pipe__name">Classify</span>
+          <span class="pipe__n">04</span><span class="pipe__name">Record</span>
         </button>
       </div>
 
       <div class="pipe__panels">
         <div class="pipe__panel is-active" role="tabpanel" id="pp-1" aria-labelledby="ph-1" tabindex="0">
-          <h3>Parse — build a tree that survives broken code</h3>
+          <h3>Inspect — see what is there without running it</h3>
           <p>
-            Tree-sitter produces a concrete syntax tree that keeps every space and comment.
-            Invalid regions become error nodes carrying a byte offset and length, so a file
-            that does not compile still gets analysed.
+            <code>buggy functions</code> reads the file with Python's own <code>ast</code> and
+            reports every function, its signature, and whether it can be investigated — and
+            if not, why. Parsing only: your module is never imported, so nothing it does at
+            import time happens. Start here on code you do not know.
           </p>
           <ul class="chips">
-            <li>Fault-tolerant CST</li><li>Incremental re-parse</li>
-            <li>LSP symbol resolution</li><li>Bundled TS + Python grammars</li>
+            <li>Standard-library <code>ast</code></li><li>No execution at all</li>
+            <li>Signature and annotation reading</li><li>Says why something was skipped</li>
           </ul>
         </div>
 
         <div class="pipe__panel" role="tabpanel" id="pp-2" aria-labelledby="ph-2" tabindex="0" hidden>
           <h3>Prove — find a real failing input, then distrust it</h3>
           <p>
-            The fuzzer tries the values that break arithmetic first — <code>0</code>,
-            <code>NaN</code>, <code>±Infinity</code>, <code>MAX_SAFE_INTEGER</code>, empty
-            arrays — before any random input. Each candidate runs in a child process, and a
-            violation only becomes a certificate after admissibility, soundness and
-            reproducibility all pass.
+            The generator tries the values that break arithmetic first — <code>0</code>,
+            <code>nan</code>, <code>±inf</code>, huge integers, empty collections, empty
+            strings — before anything random. Candidates run in a reusable worker process at
+            about 0.015 ms per call, and a violation only becomes a certificate after
+            admissibility, soundness and reproducibility all pass.
           </p>
           <ul class="chips">
             <li>Edge cases before randoms</li><li>Real execution, not simulation</li>
-            <li>Timeout · crash · NaN · postcondition · determinism</li><li>2 of 3 re-runs must reproduce</li>
+            <li>Timeout · crash · postcondition · non-finite · determinism</li><li>2 of 3 re-runs must reproduce</li>
           </ul>
         </div>
 
         <div class="pipe__panel" role="tabpanel" id="pp-3" aria-labelledby="ph-3" tabindex="0" hidden>
           <h3>Repair — guard the input the proof blames</h3>
           <p>
-            The certificate says <code>price(0, 0)</code> raised a division error, so the guard
-            tests <code>quantity == 0</code> rather than a generic null check. Five strategies
-            produce structurally distinct candidates, and a dialect layer renders them as valid
-            TypeScript or valid Python.
+            The certificate says <code>ratio(0, 0)</code> raised a division error, so the guard
+            tests <code>b == 0</code> rather than a generic <code>None</code> check. Each
+            candidate is then applied and executed to earn its verdict. Nothing is written to
+            your file — you get the diff and the decision.
           </p>
           <ul class="chips">
             <li>Trigger-derived guards</li><li>Clamping for magnitude bugs</li>
-            <li>5 strategies</li><li>Never writes to your files</li>
+            <li>Verified · overfit · rejected</li><li>Never writes to your files</li>
           </ul>
         </div>
 
         <div class="pipe__panel" role="tabpanel" id="pp-4" aria-labelledby="ph-4" tabindex="0" hidden>
-          <h3>Classify — reject the fix that only fits the example</h3>
+          <h3>Record — keep the trigger, not a story about it</h3>
           <p>
-            Nodes are split into generated, deleted and remaining, then counted across eleven
-            AST properties. The resulting 66-dimensional vector produces an overfitting
-            probability. Score above the threshold and the patch is rejected, with the three
-            properties that drove the decision named.
+            Opt in with <code>--record</code> and the failing call is stored in
+            <code>.buggy/findings.db</code>. Later, <code>buggy recheck</code> re-runs every
+            stored trigger and reports what is still failing, now fixed, regressed, or
+            unreachable because the code moved. <code>buggy export-tests</code> turns them
+            into pytest cases.
           </p>
           <ul class="chips">
-            <li>66-dimensional vector</li><li>Threshold 0.5</li>
-            <li>Top-3 contributing properties</li><li>Swappable model</li>
+            <li>Opt-in, never automatic</li><li>Re-runnable triggers</li>
+            <li>Regressions exit non-zero for CI</li><li>Exports to pytest</li>
           </ul>
         </div>
       </div>
@@ -325,8 +331,8 @@ Approved patches: 1, with overfitting probability 12.4 percent.
         <span class="pillar__n">02</span>
         <h3>Soundness</h3>
         <p>
-          The function is executed again and the output is re-evaluated against the
-          postcondition. The violation has to still be there on a clean run.
+          The function is executed again in a fresh process and the result is re-evaluated.
+          The violation has to still be there on a clean run.
         </p>
       </article>
       <article class="pillar reveal" data-reveal-delay="2">
@@ -340,53 +346,67 @@ Approved patches: 1, with overfitting probability 12.4 percent.
     </div>
 
     <div class="note reveal">
-      <strong>Why the evidence survives storage.</strong>
-      The values that trigger numeric bugs are exactly the ones <code>JSON.stringify</code>
-      destroys — <code>NaN</code> becomes <code>null</code>, <code>undefined</code> breaks the
-      database bind. In a proof-carrying tool the observed output <em>is</em> the evidence, so
-      every one of them is written with an explicit sentinel token instead.
+      <strong>Two failures it deliberately will not report.</strong>
+      A non-finite result from non-finite arguments is IEEE 754 working as designed, so
+      <code>monthly(nan)</code> returning <code>nan</code> is not a finding while
+      <code>ratio(0, 0)</code> is. And <code>TypeError</code> from passing <code>None</code> is
+      the caller's mistake, so it is ranked last and the search keeps going — which is why you
+      get <code>divide(x, 0)</code> rather than <code>divide(None, None)</code>.
     </div>
   </div>
 </section>
 
-<!-- ───────────────────────────── OVERFITTING ───────────────────────────── -->
-<section class="section section--alt" id="overfit">
-  <div class="wrap overfit">
-    <div class="overfit__copy">
-      <div class="sec-head sec-head--left">
-        <h2 class="reveal">66 numbers decide whether a patch ships</h2>
-        <p class="reveal" data-reveal-delay="1">
-          A patch that special-cases the input which caught it passes every test you have and
-          fails in production. Buggy measures the shape of the edit rather than trusting the
-          suite.
-        </p>
-      </div>
-
-      <dl class="kv reveal" data-reveal-delay="2">
-        <div><dt>11</dt><dd>AST properties — statements, branches, loops, calls, declarations, assignments, returns, literals, operators, nesting depth, identifiers</dd></div>
-        <div><dt>×3</dt><dd>Edit states — generated, deleted, remaining</dd></div>
-        <div><dt>×2</dt><dd>Raw counts, then normalised</dd></div>
-        <div><dt>=66</dt><dd>Dimensions in, one overfitting probability out</dd></div>
-      </dl>
-
-      <p class="reveal" data-reveal-delay="3">
-        Patches at or below <code>0.5</code> are approved. Above it they are rejected and the
-        three properties that pushed the score up are reported, so the verdict is inspectable
-        rather than a black box.
+<!-- ───────────────────────────── REPAIR ───────────────────────────── -->
+<section class="section section--alt" id="repair">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="reveal">A fix earns its verdict by running</h2>
+      <p class="reveal" data-reveal-delay="1">
+        A patch that special-cases the input which caught it passes every test you have and
+        fails in production. Rather than score the shape of the edit, Buggy applies each
+        candidate and asks four questions.
       </p>
     </div>
 
-    <div class="overfit__viz reveal" data-reveal-delay="1">
-      <div class="vec" id="vec" role="img" aria-label="Visualisation of a 66-dimensional feature vector: eleven AST properties across three edit states, in raw and normalised form."></div>
-      <div class="vec__legend">
-        <span><i class="sw sw--gen"></i> generated</span>
-        <span><i class="sw sw--del"></i> deleted</span>
-        <span><i class="sw sw--rem"></i> remaining</span>
-      </div>
-      <div class="gauge">
-        <div class="gauge__track"><span class="gauge__fill" id="gaugeFill"></span><span class="gauge__mark" style="left:50%"></span></div>
-        <div class="gauge__labels"><span>approve</span><span class="gauge__val" id="gaugeVal">0.12</span><span>reject</span></div>
-      </div>
+    <div class="pillars">
+      <article class="pillar reveal">
+        <span class="pillar__n">01</span>
+        <h3>Does it parse?</h3>
+        <p>A candidate that does not compile is rejected before anything else runs.</p>
+      </article>
+      <article class="pillar reveal" data-reveal-delay="1">
+        <span class="pillar__n">02</span>
+        <h3>Does the trigger stop failing?</h3>
+        <p>The exact proven call is re-executed against the patched function.</p>
+      </article>
+      <article class="pillar reveal" data-reveal-delay="2">
+        <span class="pillar__n">03</span>
+        <h3>Did anything that worked break?</h3>
+        <p>Every input that previously succeeded is replayed and compared.</p>
+      </article>
+      <article class="pillar reveal" data-reveal-delay="3">
+        <span class="pillar__n">04</span>
+        <h3>Does it generalise?</h3>
+        <p>Fresh inputs of the same shape are generated and run against the fix.</p>
+      </article>
+    </div>
+
+    <div class="note reveal">
+      <strong>Three verdicts, each with its evidence.</strong>
+      <code>verified</code> fixes the trigger, breaks nothing that worked, and handles similar
+      inputs too. <code>overfit</code> fixes only the exact trigger. <code>rejected</code> does
+      not parse, or breaks working inputs. There is no probability and no threshold — the
+      report says what happened when the patch ran, for example <em>"fixes the trigger, 37
+      working inputs unchanged, 2 of 2 similar inputs also fixed"</em>.
+    </div>
+
+    <div class="note note--warn reveal">
+      <strong>Why this replaced a classifier.</strong>
+      The earlier implementation scored patches across a 66-dimensional feature vector and
+      rejected anything above 0.5. On its own recorded runs it rejected all 21 candidates it
+      ever produced, scoring the correct <code>if people == 0: return 0.0</code> guard at 93%
+      likely-overfit, with every score landing between 0.86 and 0.99. Executing the patch
+      answers the same question without the calibration problem.
     </div>
   </div>
 </section>
@@ -403,104 +423,88 @@ Approved patches: 1, with overfitting probability 12.4 percent.
       <article class="card reveal" data-tilt>
         <div class="card__ico">⌘</div>
         <h3>A real CLI</h3>
-        <p><code>init</code> with a setup wizard, then <code>analyze</code>, <code>investigate</code>, <code>status</code> and <code>halt</code>. JSON output on every command for scripting.</p>
+        <p>Seven commands: <code>functions</code>, <code>investigate</code>, <code>repair</code>, <code>scan</code>, <code>findings</code>, <code>recheck</code>, <code>export-tests</code>. <code>--json</code> on all of them for scripting.</p>
       </article>
 
       <article class="card reveal" data-reveal-delay="1" data-tilt>
         <div class="card__ico">⇄</div>
         <h3>MCP server</h3>
-        <p>Ten tools over stdio for Kiro, Cursor, Windsurf, Claude Desktop or anything else that speaks the protocol.</p>
+        <p>Six tools over stdio for Kiro, Cursor, Windsurf, Claude Desktop or anything else that speaks the protocol. Implemented on the standard library, not an SDK.</p>
       </article>
 
       <article class="card reveal" data-reveal-delay="2" data-tilt>
         <div class="card__ico">{ }</div>
-        <h3>Embeddable API</h3>
-        <p>One <code>ProofDebugger</code> class for CI jobs, internal dashboards and custom tooling.</p>
+        <h3>Importable</h3>
+        <p><code>from buggy.prove import investigate</code> returns the same report the CLI prints, for CI jobs and custom tooling.</p>
       </article>
 
       <article class="card reveal" data-tilt>
         <div class="card__ico">◇</div>
-        <h3>Two languages, one pipeline</h3>
-        <p>TypeScript and JavaScript run through a Node child process; Python through a real interpreter. Patches are emitted in the right syntax either way.</p>
+        <h3>Zero dependencies</h3>
+        <p>Standard library only, by design. The tool inspects your project, so it must not be able to disturb your project's environment — and it installs on a new Python release without waiting for anyone's wheels.</p>
       </article>
 
       <article class="card reveal" data-reveal-delay="1" data-tilt>
         <div class="card__ico">◉</div>
-        <h3>Memory that carries over</h3>
-        <p>Every investigation becomes an episode. Verified ones turn into lessons your editor reads back before it touches the same code again.</p>
+        <h3>Defects you can re-run</h3>
+        <p>Recorded findings store the failing call, not a prose lesson. <code>recheck</code> answers "did that fix hold?" by executing it again.</p>
       </article>
 
       <article class="card reveal" data-reveal-delay="2" data-tilt>
         <div class="card__ico">▣</div>
         <h3>Read-only by default</h3>
-        <p>Patch generation runs through a no-op writer. Candidates are produced, scored and shown — applying one is always your call.</p>
+        <p>Patches are produced, verified and shown. Nothing is written to your source, and recording a finding is opt-in.</p>
       </article>
     </div>
   </div>
 </section>
 
-<!-- ───────────────────────────── WATCHLIST ───────────────────────────── -->
+<!-- ───────────────────────────── MEMORY ───────────────────────────── -->
 <section class="section section--alt" id="memory">
   <div class="wrap">
     <div class="sec-head">
-      <h2 class="reveal">The Watchlist</h2>
+      <h2 class="reveal">Then it checks whether the fix held</h2>
       <p class="reveal" data-reveal-delay="1">
-        Each run is recorded with what triggered the bug, which patches were rejected and how
-        they failed. Verified runs become lessons, promoted outward through three tiers.
+        Recording a defect is easy. Knowing whether it came back is the part that usually gets
+        skipped — and the only way to answer it honestly is to run the thing again.
       </p>
     </div>
 
     <div class="tiers">
       <article class="tier reveal">
-        <h3><span class="tier__tag">local</span> Private to you</h3>
-        <p>Every episode lands in the SQLite file under <code>.debugger/</code>, which <code>init</code> adds to your <code>.gitignore</code>.</p>
-      </article>
-      <article class="tier reveal" data-reveal-delay="1">
-        <h3><span class="tier__tag">team</span> Committed for the repo</h3>
-        <p>Verified lessons are rewritten into a steering file your editor loads automatically, so the next person gets the same warning.</p>
-      </article>
-      <article class="tier reveal" data-reveal-delay="2">
-        <h3><span class="tier__tag">global</span> Across your projects</h3>
-        <p>Promoted only after the same lesson appears in two separate projects, and sanitised to patterns and type shapes — never source, paths or values.</p>
-      </article>
-    </div>
-
-    <div class="sec-head" style="margin-top:clamp(44px,6vw,72px)">
-      <h2 class="reveal">Then it checks whether that helped</h2>
-      <p class="reveal" data-reveal-delay="1">
-        Recording lessons is easy. Knowing if they worked is the part that
-        usually gets skipped.
-      </p>
-    </div>
-
-    <div class="tiers">
-      <article class="tier reveal">
-        <h3><span class="tier__tag">retrospect</span> Did the fix hold?</h3>
+        <h3><span class="tier__tag">record</span> Keep the call, not a story</h3>
         <p>
-          Each lesson is read as a timeline, separating fixes that held from ones
-          that <strong>regressed</strong> — proven again after being repaired.
-          That is the case where the memory existed and the defect still came
-          back, which usually means the patch guarded the triggering input rather
-          than the cause.
+          <code>--record</code> stores the exact failing call in
+          <code>.buggy/findings.db</code>: the arguments, the rule it broke, the conditions it
+          ran under. Opt-in, because a tool that inspects your code should not start writing
+          files uninvited.
         </p>
       </article>
       <article class="tier reveal" data-reveal-delay="1">
-        <h3><span class="tier__tag">dead ends</span> Stop retrying what failed</h3>
+        <h3><span class="tier__tag">recheck</span> Still failing, or fixed?</h3>
         <p>
-          Rejection reasons are normalised and counted, so an approach that keeps
-          getting rejected becomes a named dead end instead of something the
-          agent rediscovers every session.
+          <code>buggy recheck</code> re-runs every stored trigger and reports each as still
+          failing, now fixed, <strong>regressed</strong>, or unreachable because the code
+          moved. Regressed means it was observed fixed and is failing again, which is the one
+          worth acting on. The command exits non-zero when anything regressed, so it works
+          unchanged as a CI step.
         </p>
       </article>
       <article class="tier reveal" data-reveal-delay="2">
-        <h3><span class="tier__tag">suggest</span> Propose the missing guardrail</h3>
+        <h3><span class="tier__tag">export</span> Turn it into a test</h3>
         <p>
-          When a defect class keeps recurring, the answer is usually a new
-          guardrail rather than another patch. Buggy proposes hooks, steering
-          rules and skills built from its own evidence — each naming the episodes
-          behind it, and each written only when you accept it.
+          <code>buggy export-tests</code> writes recorded defects out as pytest functions, so a
+          proven defect becomes a regression test without being retyped.
         </p>
       </article>
+    </div>
+
+    <div class="note reveal">
+      <strong>What was left out, and why.</strong>
+      An earlier design promoted findings into prose "lessons" and shared them across projects
+      via a sanitised index in your home directory. That is gone: it wrote outside the project
+      for a weak signal, and a trigger from another codebase cannot be re-run against yours,
+      so none of its claims could be checked.
     </div>
   </div>
 </section>
@@ -517,24 +521,30 @@ Approved patches: 1, with overfitting probability 12.4 percent.
       <div class="tabs__list" role="tablist" aria-label="Usage examples">
         <button class="tabs__btn is-active" role="tab" id="t-cli" aria-controls="p-cli" aria-selected="true">CLI</button>
         <button class="tabs__btn" role="tab" id="t-mcp" aria-controls="p-mcp" aria-selected="false" tabindex="-1">MCP</button>
-        <button class="tabs__btn" role="tab" id="t-api" aria-controls="p-api" aria-selected="false" tabindex="-1">API</button>
+        <button class="tabs__btn" role="tab" id="t-api" aria-controls="p-api" aria-selected="false" tabindex="-1">Python</button>
       </div>
 
       <div class="tabs__panel is-active" role="tabpanel" id="p-cli" aria-labelledby="t-cli" tabindex="0">
         <div class="code">
           <button class="copy" data-copy aria-label="Copy CLI example">Copy</button>
-<pre><code><span class="c"># set up once — the wizard detects your language</span>
-buggy init
+<pre><code><span class="c"># what is in this file? parses only, runs nothing</span>
+buggy functions src/pricing.py
 
-<span class="c"># parse a file and show what was found</span>
-buggy analyze src/expenses.ts
+<span class="c"># prove one function, with conditions written in Python</span>
+buggy investigate apply_discount -f src/pricing.py \
+  --pre <span class="s">'price &gt;= 0'</span> --post <span class="s">'result &gt;= 0'</span>
 
-<span class="c"># run the full pipeline on one function</span>
-buggy investigate splitExpense --file src/expenses.ts --verbose
+<span class="c"># propose fixes, each verified by execution</span>
+buggy repair apply_discount -f src/pricing.py
 
 <span class="c"># machine-readable, for CI</span>
-buggy investigate splitExpense -f src/expenses.ts --json</code></pre>
+buggy investigate apply_discount -f src/pricing.py --json</code></pre>
         </div>
+        <p class="tabs__note">
+          Conditions are <strong>Python</strong> expressions. Parameter names are in scope and
+          postconditions also see <code>result</code>. A condition that cannot be evaluated is
+          reported as a warning, never skipped silently.
+        </p>
       </div>
 
       <div class="tabs__panel" role="tabpanel" id="p-mcp" aria-labelledby="t-mcp" tabindex="0" hidden>
@@ -543,11 +553,9 @@ buggy investigate splitExpense -f src/expenses.ts --json</code></pre>
 <pre><code>{
   <span class="k">"mcpServers"</span>: {
     <span class="k">"buggy"</span>: {
-      <span class="k">"command"</span>: <span class="s">"buggy-mcp"</span>,
+      <span class="k">"command"</span>: <span class="s">"/Users/you/.local/bin/buggy-mcp"</span>,
       <span class="k">"autoApprove"</span>: [
-        <span class="s">"buggy_analyze"</span>,
-        <span class="s">"buggy_list_functions"</span>,
-        <span class="s">"buggy_investigate"</span>,
+        <span class="s">"buggy_functions"</span>,
         <span class="s">"buggy_recall"</span>
       ]
     }
@@ -555,36 +563,33 @@ buggy investigate splitExpense -f src/expenses.ts --json</code></pre>
 }</code></pre>
         </div>
         <p class="tabs__note">
-          Tools exposed: <code>buggy_init</code>, <code>buggy_analyze</code>,
-          <code>buggy_investigate</code>, <code>buggy_status</code>,
-          <code>buggy_query_graph</code>, <code>buggy_list_functions</code>,
-          <code>buggy_recall</code>, <code>buggy_retrospect</code>,
-          <code>buggy_suggest_capabilities</code>,
-          <code>buggy_apply_capability</code>.
+          Tools exposed: <code>buggy_functions</code>, <code>buggy_investigate</code>,
+          <code>buggy_repair</code>, <code>buggy_scan</code>, <code>buggy_recall</code>,
+          <code>buggy_recheck</code>.
+          Only the first and <code>buggy_recall</code> are auto-approved above: the other four
+          import your module to prove a defect, which runs its top-level code, so you are
+          asked first.
         </p>
       </div>
 
       <div class="tabs__panel" role="tabpanel" id="p-api" aria-labelledby="t-api" tabindex="0" hidden>
         <div class="code">
-          <button class="copy" data-copy aria-label="Copy API example">Copy</button>
-<pre><code><span class="k">import</span> { ProofDebugger } <span class="k">from</span> <span class="s">'buggy-debugger'</span>;
+          <button class="copy" data-copy aria-label="Copy Python example">Copy</button>
+<pre><code><span class="k">from</span> buggy.prove <span class="k">import</span> investigate, Config
 
-<span class="k">const</span> dbg = <span class="k">new</span> <span class="f">ProofDebugger</span>({ projectRoot: <span class="s">'/path/to/project'</span> });
-<span class="k">await</span> dbg.<span class="f">initialize</span>();
+report = <span class="f">investigate</span>(
+    <span class="s">"src/pricing.py"</span>, <span class="s">"apply_discount"</span>,
+    preconditions=[<span class="s">"price &gt;= 0"</span>, <span class="s">"percent_off &gt;= 0"</span>],
+    postconditions=[<span class="s">"result &gt;= 0"</span>],
+    config=<span class="f">Config</span>(max_executions=300, timeout=2.0),
+)
 
-<span class="k">const</span> report = <span class="k">await</span> dbg.<span class="f">investigate</span>({
-  functionId: <span class="s">'splitExpense'</span>,
-  filePath: <span class="s">'src/expenses.ts'</span>,
-  specification: {
-    preconditions:  [<span class="s">'people &gt;= 0'</span>],
-    postconditions: [<span class="s">'isFinite(result)'</span>, <span class="s">'result &gt;= 0'</span>],
-  },
-});
+<span class="c"># 'proven' | 'unconfirmed' | 'no_valid_input' | 'skipped'</span>
+<span class="f">print</span>(report.status)
 
-<span class="c">// 'confirmed_and_repaired' | 'confirmed_no_repair' | 'unconfirmed' | 'halted'</span>
-console.<span class="f">log</span>(report.status, report.proof, report.approved_patches);
-
-<span class="k">await</span> dbg.<span class="f">shutdown</span>();</code></pre>
+<span class="k">if</span> report.certificate:
+    <span class="f">print</span>(report.certificate.rule)        <span class="c"># what it broke</span>
+    <span class="f">print</span>(report.certificate.args)        <span class="c"># the failing input</span></code></pre>
         </div>
       </div>
     </div>
@@ -597,8 +602,8 @@ console.<span class="f">log</span>(report.status, report.proof, report.approved_
     <div class="sec-head">
       <h2 class="reveal">Install</h2>
       <p class="reveal" data-reveal-delay="1">
-        Install straight from the repository. It compiles itself during install, so there is no
-        separate build step.
+        Python 3.10 or newer is the whole requirement. There is nothing to compile and nothing
+        to download.
       </p>
     </div>
 
@@ -609,17 +614,15 @@ console.<span class="f">log</span>(report.status, report.proof, report.approved_
           <h3>Add it</h3>
           <div class="code code--sm">
             <button class="copy" data-copy aria-label="Copy install command">Copy</button>
-<pre><code><span class="c"># global — gives you `buggy` and `buggy-mcp`</span>
-npm install -g buggy-debugger
+<pre><code>git clone https://github.com/himanshusaini-afk/buggy.git
+<span class="k">cd</span> buggy
 
-<span class="c"># or as a project dependency</span>
-npm install buggy-debugger</code></pre>
+python3 -m venv ~/.buggy-venv
+~/.buggy-venv/bin/pip install -e .</code></pre>
           </div>
           <p class="install__hint">
-            Published as <code>buggy-debugger</code> — the bare name <code>buggy</code> on npm is
-            an unrelated issue tracker. The commands it installs are still
-            <code>buggy</code> and <code>buggy-mcp</code>. Installing from
-            <code>github:himanshusaini-afk/buggy</code> also works.
+            The virtualenv keeps the tool from touching the environment of whatever project you
+            point it at. Nothing is installed into your project.
           </p>
         </div>
       </div>
@@ -627,17 +630,17 @@ npm install buggy-debugger</code></pre>
       <div class="install__step reveal" data-reveal-delay="1">
         <span class="install__n">2</span>
         <div>
-          <h3>Set up your project</h3>
+          <h3>Put it on your PATH</h3>
           <div class="code code--sm">
-            <button class="copy" data-copy aria-label="Copy init command">Copy</button>
-<pre><code>cd /path/to/your/project
-buggy init             <span class="c"># interactive</span>
-buggy init --yes       <span class="c"># accept detected defaults</span></code></pre>
+            <button class="copy" data-copy aria-label="Copy link commands">Copy</button>
+<pre><code>mkdir -p ~/.local/bin
+ln -sf ~/.buggy-venv/bin/buggy     ~/.local/bin/buggy
+ln -sf ~/.buggy-venv/bin/buggy-mcp ~/.local/bin/buggy-mcp</code></pre>
           </div>
           <p class="install__hint">
-            Writes <code>.debugger.yaml</code>, creates <code>.debugger/</code> and offers to
-            git-ignore it. Prompts are skipped automatically when stdin is not a terminal, so
-            it is safe in CI.
+            Symlinks rather than a venv path in your config, so the venv can be rebuilt without
+            breaking anything downstream. Check <code>~/.local/bin</code> is on your
+            <code>PATH</code>.
           </p>
         </div>
       </div>
@@ -648,11 +651,12 @@ buggy init --yes       <span class="c"># accept detected defaults</span></code><
           <h3>Find a bug</h3>
           <div class="code code--sm">
             <button class="copy" data-copy aria-label="Copy investigate command">Copy</button>
-<pre><code>buggy investigate splitExpense --file src/expenses.ts</code></pre>
+<pre><code>buggy functions src/pricing.py
+buggy investigate apply_discount -f src/pricing.py --post <span class="s">'result &gt;= 0'</span></code></pre>
           </div>
           <p class="install__hint">
-            Or build from source: <code>git clone</code>, <code>npm install</code>, then
-            <code>npm link</code> to expose both binaries.
+            Or skip installing entirely: <code>PYTHONPATH=. python3 -m buggy.cli --help</code>
+            from the checkout.
           </p>
         </div>
       </div>
@@ -661,10 +665,10 @@ buggy init --yes       <span class="c"># accept detected defaults</span></code><
     <div class="reqs reveal">
       <h3>Requirements</h3>
       <ul>
-        <li><strong>Node 18 or newer.</strong></li>
-        <li><strong>Grammars are bundled.</strong> Nothing extra to install for TypeScript or Python parsing.</li>
-        <li><strong>Python on PATH</strong> to prove Python code — <code>python</code> on Windows, <code>python3</code> elsewhere. Override with <code>BUGGY_PYTHON</code>.</li>
-        <li><strong>An LSP server is optional.</strong> Symbol resolution degrades quietly without one.</li>
+        <li><strong>Python 3.10 or newer.</strong> That is the only requirement.</li>
+        <li><strong>No dependencies.</strong> Standard library only, and none are planned for the core.</li>
+        <li><strong>No Node, and no build step.</strong> Earlier versions of this project were written in TypeScript; that implementation was removed and is preserved at the <code>ts-final</code> tag.</li>
+        <li><strong>Your code is really executed.</strong> See the warning below before pointing it at anything that touches the outside world.</li>
       </ul>
     </div>
   </div>
@@ -676,52 +680,52 @@ buggy init --yes       <span class="c"># accept detected defaults</span></code><
     <div class="sec-head">
       <h2 class="reveal">What runs today</h2>
       <p class="reveal" data-reveal-delay="1">
-        The repository contains more than the live pipeline currently calls. Rather than let the
-        diagram imply otherwise, here is the split.
+        This is early software. Rather than let the diagrams imply otherwise, here is what
+        works and what is deliberately absent.
       </p>
     </div>
 
     <div class="status">
       <div class="status__col reveal">
-        <h3 class="status__h status__h--on">Wired and running</h3>
+        <h3 class="status__h status__h--on">Working and tested</h3>
         <ul class="list list--good">
-          <li>Tree-sitter parsing with error recovery, incremental re-parse, LSP resolution</li>
-          <li>Execution-based fuzzing with edge-case-first input generation</li>
-          <li>Five oracles: timeout, crash, NaN/Infinity, postcondition, determinism</li>
+          <li>Function and class inspection via <code>ast</code>, with a stated reason for anything skipped</li>
+          <li>Annotation-driven input generation, edge cases before randoms</li>
+          <li>A reusable worker process at about 0.015 ms per call, with timeout, kill-and-respawn and <code>RLIMIT_CPU</code></li>
+          <li>Five oracles: timeout, crash, postcondition, non-finite, determinism</li>
+          <li>Propagation and type-confusion ranking, so the interesting failure is reported</li>
           <li>Three-pillar certification: admissibility, soundness, reproducibility</li>
-          <li>Trigger-derived repair with TypeScript and Python dialects</li>
-          <li>66-dimensional overfitting classification</li>
-          <li>Watchlist recording and recall across all three tiers</li>
-          <li>Retrospective analysis and the capability advisor</li>
-          <li>CLI, MCP server and programmatic API</li>
+          <li>Instance methods, with the receiver inferred from <code>__init__</code> or pinned by hand</li>
+          <li>A Python specification language with a restricted evaluator</li>
+          <li>Repair with execution-verified verdicts</li>
+          <li>Recording, <code>recheck</code>, and pytest export</li>
+          <li>CLI, MCP server, and an importable API</li>
         </ul>
       </div>
 
       <div class="status__col reveal" data-reveal-delay="1">
-        <h3 class="status__h status__h--off">Present, not yet in the pipeline</h3>
+        <h3 class="status__h status__h--off">Not here, on purpose</h3>
         <ul class="list list--warn">
-          <li>Firecracker microVM isolation — today the boundary is an OS child process</li>
-          <li>Compile and test filtering of patches before classification</li>
-          <li>PROBE adversarial property refinement</li>
-          <li>SpecTune alpha-consistency refinement</li>
-          <li>TrajSpec commit-history interpretation</li>
-          <li>SAFuzz region-biased mutation</li>
-          <li>Backward slicing for defect localisation</li>
-          <li>Differential test generation</li>
-          <li>OAP passports, circuit breaker and snapshot pool</li>
-          <li>Call-graph population, so graph queries return empty</li>
-          <li>The four plug-in extension points</li>
+          <li><strong>Any language but Python.</strong> A <code>.ts</code> file is refused, not guessed at</li>
+          <li><strong>A sandbox.</strong> The boundary is an OS child process with CPU and file-size caps — there is no filesystem, network or syscall restriction</li>
+          <li><strong>A hard memory cap on macOS.</strong> <code>RLIMIT_AS</code> cannot be lowered there, so limits are reported rather than assumed</li>
+          <li><strong>Async functions.</strong> Refused with a reason; the worker has no event loop</li>
+          <li><strong>Special methods.</strong> <code>__init__</code>, <code>__add__</code> and the rest are refused — their calling conventions vary too much to guess</li>
+          <li><strong>Defects needing several calls on one object.</strong> The receiver is rebuilt per call, which is what makes reproducibility sound</li>
+          <li><strong>Cross-project memory</strong> and <strong>generated hooks or steering</strong>, both dropped for want of checkable evidence</li>
+          <li><strong>MCP resources and prompts.</strong> The endpoints answer with empty lists so clients that probe them do not error</li>
         </ul>
       </div>
     </div>
 
     <div class="note note--warn reveal">
-      <strong>Worth saying plainly.</strong>
-      Untrusted code currently runs in a child process, not a hardware-isolated VM, and an
-      approved patch has passed the overfitting check only — it has not been compiled or
-      test-run for you. Read the diff before you apply it.
-      The full module-by-module split lives in
-      <a href="https://github.com/himanshusaini-afk/buggy/blob/main/docs/FEATURES.md#what-runs-today">FEATURES.md</a>.
+      <strong>Side effects happen.</strong>
+      Your functions are really executed, and for an instance method so is the constructor,
+      with generated arguments. Running Buggy over its own source once left a stray SQLite file
+      behind, because a generated argument reached a constructor that opens a database. Nothing
+      is faked or mocked — that is what makes a finding reproducible, and also what makes this
+      a real consideration. Inventory with <code>buggy functions</code> first, run it on a clean
+      working tree, and do not point it at code you would not run.
     </div>
   </div>
 </section>
@@ -749,13 +753,13 @@ buggy init --yes       <span class="c"># accept detected defaults</span></code><
         </svg>
         <span class="brand__name">Buggy</span>
       </a>
-      <p class="foot__tag">Proof-carrying program repair and debugging. MIT licensed.</p>
+      <p class="foot__tag">Proof-carrying debugging for Python. MIT licensed.</p>
     </div>
     <nav class="foot__links" aria-label="Footer">
       <a href="https://github.com/himanshusaini-afk/buggy">Repository</a>
-      <a href="https://github.com/himanshusaini-afk/buggy/blob/main/docs/FEATURES.md">Features</a>
-      <a href="https://github.com/himanshusaini-afk/buggy/blob/main/docs/USAGE-GUIDE.md">Usage guide</a>
-      <a href="https://github.com/himanshusaini-afk/buggy/blob/main/docs/TECHNICAL.md">Technical notes</a>
+      <a href="https://github.com/himanshusaini-afk/buggy#readme">Documentation</a>
+      <a href="https://github.com/himanshusaini-afk/buggy#what-exists-today">What runs today</a>
+      <a href="https://github.com/himanshusaini-afk/buggy/tree/main/examples">Examples</a>
       <a href="https://github.com/himanshusaini-afk/buggy/issues">Issues</a>
     </nav>
   </div>

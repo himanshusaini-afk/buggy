@@ -1,9 +1,52 @@
 {
+  "//": "Copy ONE of these entries into your client's MCP config under the name 'buggy'. For Kiro that is .kiro/settings/mcp.json (per workspace) or ~/.kiro/settings/mcp.json (all workspaces).",
+  "//2": "buggy_repair is deliberately absent from every autoApprove list below. It writes nothing, but a patch is a change to your code and deserves a human glance.",
   "mcpServers": {
     "buggy": {
+      "//": "Use this when the package is installed and on PATH.",
       "command": "buggy-mcp",
       "args": [],
-      "env": {}
+      "env": {},
+      "disabled": false,
+      "autoApprove": [
+        "buggy_functions",
+        "buggy_investigate",
+        "buggy_scan",
+        "buggy_recall",
+        "buggy_recheck"
+      ]
+    },
+    "buggy-venv": {
+      "//": "Recommended. An absolute path into a virtualenv needs no PATH changes, and sidesteps the TypeScript package, which installs a binary with the same name. Create it with: python3 -m venv ~/.buggy-venv && ~/.buggy-venv/bin/pip install -e /path/to/debugger/buggy-py",
+      "command": "/absolute/path/to/.buggy-venv/bin/buggy-mcp",
+      "args": [],
+      "env": {},
+      "disabled": true,
+      "autoApprove": [
+        "buggy_functions",
+        "buggy_investigate",
+        "buggy_scan",
+        "buggy_recall",
+        "buggy_recheck"
+      ]
+    },
+    "buggy-from-source": {
+      "//": "No install at all - runs straight from a checkout. Replace the path with your own.",
+      "//2": "The path is passed as a literal to -c rather than through PYTHONPATH on purpose. PYTHONPATH is colon-separated on POSIX, so a checkout whose path contains a colon silently becomes two directories that do not exist, and the server fails with ModuleNotFoundError. A repr'd argument is immune to that, and to spaces.",
+      "command": "python3",
+      "args": [
+        "-c",
+        "import sys; sys.path.insert(0, '/absolute/path/to/debugger/buggy-py'); from buggy import mcp; sys.exit(mcp.main())"
+      ],
+      "env": {},
+      "disabled": true,
+      "autoApprove": [
+        "buggy_functions",
+        "buggy_investigate",
+        "buggy_scan",
+        "buggy_recall",
+        "buggy_recheck"
+      ]
     }
   }
 }

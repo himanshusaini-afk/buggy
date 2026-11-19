@@ -38,9 +38,7 @@ binary nobody can edit.
 Any static server works. From the repository root:
 
 ```bash
-npx serve site          # then open the printed URL
-# or
-python -m http.server 8080 --directory site
+python3 -m http.server 8080 --directory site    # then open http://127.0.0.1:8080
 ```
 
 Opening `index.html` straight from the filesystem mostly works too, but clipboard

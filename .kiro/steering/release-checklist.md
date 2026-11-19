@@ -18,15 +18,15 @@ change a documented count.
 
 Update whichever of these the change touches:
 
-- **CLI Reference** — a new command, flag, or changed output needs its own entry
-  with a worked example, matching the style of the existing entries.
-- **Programmatic API** — new `ProofDebugger` methods belong in the example block.
-- **MCP tools** — the tool list and anything describing how many there are.
-- **Configuration Reference** — new `.debugger.yaml` keys, with their defaults.
-- **Architecture Overview / Learning Across Runs** — new subsystems.
-- **What runs today** — if a module moves from library-only into the live
-  pipeline, move it across. This section is the project's credibility; an
+- **Commands** — a new command, flag, or changed output needs its own entry with
+  a worked example, matching the style of the existing ones.
+- **Programmatic** — new public functions belong in the example block.
+- **MCP tools** — the tool list and anything stating how many there are.
+- **What is checked** — a new oracle, or a change to the ranking rules.
+- **What exists today** — this section is the project's credibility. If a change
+  makes a claim true, move it across; if it does not, do not imply it does. An
   inaccurate claim here is worse than no claim.
+- **Install** — anything affecting the venv, the symlinks, or the MCP config.
 
 ## 2. Site
 
@@ -38,25 +38,41 @@ Things that go stale silently and must be checked on every change:
 |---|---|
 | Stat counters | `data-to` attributes on `.count` in `site/index.html` |
 | MCP tool list | the `.tabs__note` paragraph under the MCP tab |
-| Pipeline / proof / classifier copy | the matching `<section>` |
+| Pipeline / proof / repair copy | the matching `<section>` |
 | "What runs today" split | the `#status` section — must agree with the README |
 | Social card text | `site/assets/og-card.html`, then re-render `og.png` |
 
-Current counters, for reference: pipeline phases, proof pillars, classifier
-dimensions, MCP tool count, total tests. **The test count changes whenever tests
-are added** — read it off the actual run, never guess.
+The counters are: oracles, proof pillars, CLI commands, MCP tools, total tests.
+**The test count changes whenever tests are added** — read it off the actual run,
+never guess.
+
+`main.js` holds the hero transcript as a hardcoded token list, so changed CLI
+output means editing that too, not just the HTML. The accessible transcript is a
+separate copy in `index.html` under `.sr-only` and has to match.
+
+Removing a section is safe: every block in `main.js` begins with a
+`if (!el) return;` guard. Delete the dead block as well rather than leaving it.
+
+Re-render the social card with headless Chrome:
+
+```bash
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --headless=new --disable-gpu --force-device-scale-factor=1 \
+  --screenshot=site/assets/og.png --window-size=1200,630 \
+  "file://$(pwd)/site/assets/og-card.html"
+```
 
 Preview before pushing:
 
 ```bash
-npx serve site
+python3 -m http.server 8080 --directory site
 ```
 
 ## 3. Verify, then land it on `main`
 
 `main` is the branch the world gets: it is the GitHub default, so it is what a
-`git clone` and an `npm install github:...` resolve to, and it is what anyone
-arriving from the website pulls. **Keep it current.**
+`git clone` and a `pip install git+https://...` resolve to, and it is what
+anyone arriving from the website pulls. **Keep it current.**
 
 ### The branch cycle
 
@@ -85,18 +101,17 @@ makes "what shipped" readable.
 
 ### Verify before the merge, not after
 
-In order, and do not skip ahead on a failure:
-
 ```bash
-npm run build                                     # tsc must be clean
-npx vitest run                                    # note the new total
-cd buggy-py && python3 -m unittest discover -s tests -t .
+python3 -m unittest discover -s tests -t .
 ```
 
-Both suites matter and they are independent. The Python package has no Node
-dependency, so a machine without `node` can still verify `buggy-py` in full —
-say which suite you ran and which you could not, rather than implying both
-passed.
+That is the whole suite, and it needs nothing but Python. Report the real total
+off the run; never guess it.
+
+Five tests in `tests/test_prove.py` compare against the recorded TypeScript run
+in `examples/expense-api/logs/investigations.jsonl` and **skip** with a stated
+reason if that directory is missing. A sudden jump in the skip count means a
+path broke, not that the tests passed - check it rather than accepting the OK.
 
 ### Then confirm the deploy
 
@@ -126,8 +141,19 @@ workflow ran after the merge, the site change was missed.
 
 ## Accuracy over polish
 
-Both the README and the site currently distinguish what is wired into the live
-pipeline from what exists as library code. Preserve that distinction. If a
-change makes a claim true, update the claim; if it does not, do not imply it
-does. `docs/MARKETING.md` is aspirational and overstates the current state —
-do not copy claims from it into the README or the site.
+Both the README and the site separate what works from what is deliberately
+absent. Preserve that split. If a change makes a claim true, update the claim;
+if it does not, do not imply it does.
+
+Three claims in particular are load-bearing and must not drift:
+
+- **`unconfirmed` is not "no bugs".** It means nothing failed within the budget.
+- **A patch verdict is evidence, not a score.** There is no probability and no
+  threshold; say what happened when the patch ran.
+- **Your code is really executed.** Never describe the child process as a
+  sandbox. There is no filesystem, network or syscall restriction.
+
+The TypeScript implementation this project started as was removed; it is
+preserved at the `ts-final` tag. Do not reintroduce its vocabulary - no
+overfitting scores, no classifier dimensions, no Watchlist tiers, no
+`.debugger.yaml`, and no `confirmed_and_repaired` status.

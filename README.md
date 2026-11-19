@@ -1,63 +1,48 @@
 # Buggy
 
-A multi-agent system that autonomously analyzes code, proves bugs exist with formal certificates, generates repairs, and validates patches against overfitting — all coordinated over the Model Context Protocol (MCP). Unlike traditional debuggers that rely on breakpoints and manual inspection, this system produces cryptographically-verifiable proof-of-failure certificates before attempting any repair.
+Finds a real failing input for a Python function by executing it, verifies the
+failure three ways, and hands you a certificate naming the exact call that
+breaks it.
 
-**[→ buggy on the web](https://himanshusaini-afk.github.io/buggy/)** — what it does, how the pipeline works, and what currently runs. Source in [`site/`](site/).
+```
+$ buggy investigate budget_usage -f budget.py --post 'math.isfinite(result)'
 
-**[→ Features](docs/FEATURES.md)** — the full inventory, including a
-module-by-module split of what is wired into the live pipeline and what is
-library code only.
+  budget_usage  (budget.py)
+  ----------------------------------------------------------------------
+  status      proven
 
-## Working on a Python project?
+  Certificate of failure
+    input       [0, 0]
+    broke       must not raise ZeroDivisionError
+    detail      ZeroDivisionError: division by zero
+    reproduced  3/3
 
-Read this before you start, because the answer depends on what you need.
+  Call it yourself to see it fail:
+    budget_usage(0, 0)
+```
 
-**This tool does prove bugs in Python.** `language: python` selects the
-`tree-sitter-python` grammar and runs your functions in a real `python`
-interpreter, so a `ZeroDivisionError` is observed rather than inferred. See
-[`examples/expense-api`](examples/expense-api/) for a complete recorded run over
-Python sources.
+**Pure Python, no dependencies, and no Node.** Everything here is standard
+library. This project began as a TypeScript tool; that implementation was
+removed once this one surpassed it, and is preserved at the `ts-final` tag.
+See [History](#history) for what happened and why.
 
-**But its specification language is JavaScript, whatever the target language.**
-Pre- and postconditions are compiled with `new Function`, so a Python-syntax
-condition such as `len(result) > 0` raises a JavaScript `SyntaxError`, is
-discarded, and the investigation reports "no bug found" — which is
-indistinguishable from genuine safety. Write conditions in JavaScript (see
-[Programmatic API](#programmatic-api)), or use the package below.
+**Status: early.** Proving, repair, recording and the MCP server work and are
+tested. See
+[What exists today](#what-exists-today) - that section is the project's
+credibility and is kept honest.
 
-**[→ `buggy-py/`](buggy-py/)** is a native Python rewrite where conditions are
-Python, an unevaluable condition is a visible warning rather than silence, and
-execution reuses one worker process instead of spawning an interpreter per
-input. On the seven functions in `examples/expense-api` it proves 4 defects in
-0.3 s where this implementation proves 3 in 494 s.
+## Install
 
-It is **early**, but proving, repair, recording and an MCP server work and are
-tested; its README states exactly what runs. Its memory is deliberately
-narrower than the Watchlist here: it stores the failing call rather than a
-prose lesson, so `buggy recheck` answers by re-running it, and
-`buggy export-tests` turns proven defects into pytest cases. There is no
-cross-project index and no generated steering files.
-
-Its repair step is worth a look regardless. Rather than scoring patches for
-overfitting, it applies each one and re-runs the code: does it fix the proven
-trigger, does it change anything that worked, and does it handle other inputs of
-the same shape. In this implementation's own recorded runs the classifier
-rejected all 21 candidate patches across both languages, scoring the correct
-`if people == 0: return 0.0` guard at 93% likely-overfit.
-
-### Installing the Python package
-
-No Node, no npm, and no dependencies — Python 3.10 or newer is the whole
-requirement.
+Python 3.10 or newer is the whole requirement.
 
 Install into a virtualenv and link the two commands onto your `PATH`. The
 virtualenv keeps the tool from touching the environment of whatever project you
-point it at; the symlinks mean nothing has a venv path baked into it, so the
-venv can be rebuilt without breaking your editor config:
+point it at; the symlinks mean nothing holds a venv path, so the venv can be
+rebuilt without breaking your editor config:
 
 ```bash
 python3 -m venv ~/.buggy-venv
-~/.buggy-venv/bin/pip install -e buggy-py/
+~/.buggy-venv/bin/pip install -e .
 
 mkdir -p ~/.local/bin
 ln -sf ~/.buggy-venv/bin/buggy     ~/.local/bin/buggy
@@ -72,15 +57,26 @@ buggy investigate apply_discount -f src/pricing.py \
   --pre 'price >= 0' --post 'result >= 0'
 ```
 
-### Using it from an editor, in every project
+Or run it without installing anything:
 
-An MCP server registered in a **workspace** config only exists for that one
-folder. Put it in the **user** config instead and every project gets it with no
-per-project setup. For Kiro:
+```bash
+PYTHONPATH=. python3 -m buggy.cli --help
+PYTHONPATH=. python3 -m buggy.mcp          # the MCP server
+```
+
+The lack of dependencies is deliberate. The tool inspects your project, so it
+must not be able to disturb your project's environment, and it should install on
+a new Python release without waiting for anyone's wheels.
+
+### Editor setup, in every project
+
+An MCP server registered in a **workspace** config exists only for that folder.
+Put it in the **user** config and every project gets it with no per-project
+setup. For Kiro:
 
 | File | Scope |
 |---|---|
-| `~/.kiro/settings/mcp.json` | every workspace — **use this one** |
+| `~/.kiro/settings/mcp.json` | every workspace - **use this one** |
 | `<project>/.kiro/settings/mcp.json` | that project only, and it overrides the user config |
 
 ```json
@@ -97,658 +93,542 @@ per-project setup. For Kiro:
 }
 ```
 
-An absolute path rather than a bare `buggy-mcp` on purpose: npm's global prefix
-usually sits ahead of `~/.local/bin` on `PATH`, so if the npm package is ever
-installed its `buggy-mcp` would shadow this one. The two are unrelated programs
-that happen to share a name.
+An absolute path rather than a bare `buggy-mcp`, because an unrelated npm
+package publishes commands with the same two names, and npm's global prefix
+usually sits ahead of `~/.local/bin` on `PATH`.
 
 `buggy_functions` and `buggy_recall` only read your code. The other four tools
-(`buggy_investigate`, `buggy_repair`, `buggy_scan`, `buggy_recheck`) prove a
-defect by importing the target module and executing it, which runs its
-top-level code — so leaving them out of `autoApprove` means you are asked
-first. Full options, including a no-install variant, are in
-[`buggy-py/mcp-config.example.json`](buggy-py/mcp-config.example.json) and
-[`buggy-py/README.md`](buggy-py/README.md).
+prove a defect by importing the target module and executing it, which runs its
+top-level code - so leaving them out of `autoApprove` means you are asked
+first. More variants in
+[`mcp-config.example.json`](mcp-config.example.json).
 
-### If an agent tells you to install Node
+### If something tells you to install Node
 
-It has read the root `package.json`, which describes the **TypeScript**
-implementation: `engines.node >= 18`, two `bin` entries compiled by `tsc`, and
-native N-API addons (`tree-sitter`, `better-sqlite3`). All of that is true, and
-none of it applies to `buggy-py/`, which imports nothing outside the standard
-library. Confirm with:
+It is out of date. Nothing here imports anything outside the standard library,
+and there is no `package.json`. Check for yourself:
 
 ```bash
-cd buggy-py && python3 -m unittest discover -s tests -t .
+python3 -m unittest discover -s tests -t .
 ```
 
-That suite passes in full on a machine with no Node installed at all.
+That suite passes in full with no Node installed. The TypeScript implementation
+that did need it was removed; see [History](#history).
 
-Do not install the npm package to get Python support. It does prove bugs in
-Python, but its specifications are compiled as JavaScript whatever the target
-language, so a Python-syntax condition such as `len(result) > 0` raises a
-`SyntaxError`, is discarded, and the investigation reports no bug found — which
-is indistinguishable from genuine safety. See
-[Working on a Python project?](#working-on-a-python-project).
+## Use
 
-## Quick Start
+### Specifications are Python
+
+Conditions are Python expressions. Your parameter names are in scope, and
+postconditions also see `result`. The `math` module and the common builtins
+(`len`, `abs`, `min`, `max`, `sum`, `all`, `any`, `isinstance`, `sorted`, ...) are
+available.
 
 ```bash
-# From npm. NOTE the name is `buggy-debugger` — plain `buggy` on npm is an
-# unrelated issue tracker.
-npm install -g buggy-debugger
-
-# Initialize in your project — detects your language and asks a few questions
-cd /path/to/your/project
-buggy init            # or: buggy init --yes  (accept detected defaults)
-
-# Ready to use — no config editing needed
-buggy analyze src/payments.ts
-buggy investigate processPayment --file src/payments.ts
+buggy investigate apply_discount -f pricing.py \
+  --pre  'math.isfinite(price) and price >= 0' \
+  --pre  'percent_off >= 0' \
+  --post 'result >= 0'
 ```
 
-## Kiro Integration
+A condition that cannot be evaluated is **reported, never skipped silently**:
 
-Buggy now works automatically inside Kiro — your team doesn't need to run commands manually. Once configured, every file save, every AI-generated edit, and every spec task is automatically analyzed for bugs with zero developer effort.
+```
+  ! postcondition not checked: !isNaN(result)
+      not a Python expression (invalid syntax) - looks like JavaScript:
+      use 'not x' instead of !x
+```
 
-### How It Works
+Conditions run with no builtins and a restricted namespace. Lambdas, imports,
+assignment expressions, dunder access and arbitrary attribute access are
+rejected at compile time, so a specification cannot reach the filesystem or the
+interpreter internals.
 
-Buggy ships with 7 Kiro hooks that fire on IDE events. When a hook triggers,
-Kiro's agent calls Buggy's MCP tools behind the scenes and reports what it
-finds. **Nothing is applied without you choosing it.**
+### Commands
 
-The hooks target the Python package in [`buggy-py/`](buggy-py/) and call its six
-tools. If you have the Node server configured instead, its tool names differ and
-the hooks will not resolve.
+| Command | What it does |
+|---|---|
+| `buggy functions <file>` | lists functions, their signatures, and which are investigable |
+| `buggy investigate <name> -f <file>` | investigates one function |
+| `buggy repair <name> -f <file>` | investigates, then proposes fixes and verifies each by execution |
+| `buggy scan <file>` | investigates every supported function in a file |
+| `buggy findings` | lists defects recorded in this project |
+| `buggy recheck` | re-runs every recorded trigger and reports what changed |
+| `buggy export-tests` | writes recorded defects out as pytest cases |
+| `buggy-mcp` | runs as an MCP server over stdio, for use from an agent |
 
-### Hooks
+Useful flags: `--pre` / `--post` (repeatable), `--budget N` (inputs to execute,
+default 300), `--timeout S` (per call, default 2), `--determinism N`,
+`--json`, `--python PATH`.
 
-Hooks that fire **automatically** only call tools that cannot execute your code:
-`buggy_functions` parses, `buggy_recall` reads the recorded history. The four
-tools that prove a defect do so by importing the target module, which runs its
-top-level code — so they are offered, never invoked unprompted.
+### Methods
 
-| Hook | Trigger | What it does | Executes your code? |
-|------|---------|--------------|---------------------|
-| `buggy-on-save` | Python file saved | Lists the file's functions and flags risky shapes | No |
-| `buggy-post-write` | Kiro writes code | Confirms the new code parses, names any concern | No |
-| `buggy-pre-task` | Before a spec task | Inventories the task's files and recalls their defect history | No |
-| `buggy-auto-fix` | Agent finishes work | Reviews what changed, recalls history, offers to investigate | No |
-| `buggy-spec-evolution` | After a task completes | Infers pre/postconditions from the new code, offers to prove them | No |
-| `buggy-recall-first` | Code-change request | Checks whether a defect is already on record for the target | No |
-| `buggy-deep-scan` | User-triggered | Project-wide hunt — agrees scope with you, then investigates | **Yes** |
+A qualified name reaches a class member: `buggy investigate Cart.total -f cart.py`.
 
-### What Developers Experience
+Instance methods need an object to be called on. One is built from the class's
+own `__init__` signature, trying candidate arguments until one constructs, and
+**rebuilt fresh for every call** so state written by an earlier call cannot
+change a later one. The certificate records the construction, because
+`total(0)` is not something you can paste into a REPL and `Cart([1, 2]).total(0)`
+is:
 
-- Ask Kiro to fix something → it first checks whether that defect was already proven here, and whether a past fix regressed
-- Save a file → risky functions are named in seconds, with nothing executed
-- Kiro writes code → the change is parsed and concerns are flagged before you review
-- Start a spec task → the files it touches arrive with their defect history attached
-- Trigger a deep scan → you agree which paths are safe to execute before anything runs
+```
+    built on    Cart([])  (rebuilt for every call)
+    input       []
+    broke       must not raise ZeroDivisionError
 
-### Deploying to Your Team
+  Call it yourself to see it fail:
+    Cart([]).average_price()
+```
 
-Commit the `.kiro/` folder to your repository. Every team member who opens the project in Kiro gets automatic bug detection with no setup:
+A method's real input is the pair *(how the object was built, what it was called
+with)*, and both are searched. `Cart.average_price` takes no arguments at all;
+its defect lives entirely in `Cart([])`, so varying only method arguments would
+report it clean.
+
+For the same reason, **preconditions can constrain constructor parameters** by
+name:
 
 ```bash
-git add .kiro/
-git commit -m "Add Buggy hooks and steering files for automatic bug detection"
+buggy investigate Basket.scaled -f basket.py \
+  --pre 'isinstance(items, list) and all(isinstance(v, float) for v in items)' \
+  --pre 'math.isfinite(factor)'
 ```
 
-### Steering Files (Advanced Workflows)
+Here `items` comes from `Basket.__init__` and `factor` from the method. On a name
+clash the method's parameter wins.
 
-Buggy includes 8 steering files that guide Kiro's behaviour during debugging.
+When `__init__` takes only `*args`, or rejects everything tried, pass a receiver
+yourself:
 
-| File | Activates | Covers |
+```bash
+buggy investigate Session.retry -f session.py --receiver 'Session("localhost", 8080)'
+```
+
+A failure inside `__init__` is reported as a setup problem, never as a defect in
+the method under test.
+
+Functions in a package are loaded with their package context, so a module whose
+first line is `from .rates import rate` works. This is not a detail: without it,
+140 of the 149 analysable functions in buggy's own source reported "the module
+failed to load", while every fixture passed because fixtures are standalone
+files. Required keyword-only parameters are supplied by name for the same
+reason, since omitting them raised `missing a required keyword-only argument`,
+a harness artifact indistinguishable from a defect.
+
+Still out of reach, each refused with a reason rather than silently reported
+clean: special methods (`__init__`, `__add__`, ...), properties, `async` functions,
+functions nested inside other functions, and `typing.overload` signatures,
+which are not the implementation that runs. On the stdlib's `statistics`
+module, 54 of 81 functions are investigable.
+
+### Measured on real projects
+
+Run over 34 installed packages and stdlib modules, about 243,000 lines of
+unfamiliar pure Python: click, jinja2, attrs, packaging, pygments, pyparsing,
+dateutil, idna, urllib3, requests, charset-normalizer, markupsafe, and stdlib
+modules including `statistics`, `argparse`, `dataclasses`, `ipaddress`,
+`difflib`, `configparser`, `urllib.parse` and `ast`.
+
+| | |
+|---|---|
+| functions investigated | 3,651 |
+| wall clock | ~6 min |
+| crashes in buggy itself | **0** |
+| calls exceeding 6 s | 4 |
+| modules that would not load | 124 (3%) |
+
+Every one of those 124 is a real reason, not a limitation: a module that is
+Windows-only (`click._winconsole` asserts `sys.platform == "win32"`), or one
+needing an optional dependency that is not installed (`OpenSSL`, `socks`,
+`h2`). Their functions are reported unanalysable rather than clean.
+
+Two limitations the runs show plainly. Receiver construction fails for classes
+with demanding constructors, such as click's `Context` and pyparsing's
+`ParserElement`, where `--receiver` is the answer. And on code with no
+specifications most findings are weak by design, roughly two to one: a function
+rejecting bad input, an argument of the wrong type, an interactive function
+meeting an empty stdin. Preconditions are what turn that into signal.
+
+Every fix in `tests/test_realcode.py` came from one of these runs, and none of
+them could have come from a fixture.
+
+### Programmatic
+
+```python
+from buggy.prove import Config, investigate
+
+report = investigate(
+    "budget.py", "budget_usage",
+    preconditions=["budget >= 0"],
+    postconditions=["result >= 0"],
+    config=Config(max_executions=500, timeout=1.0),
+)
+
+if report.status == "proven":
+    cert = report.certificate
+    print(f"{cert.function}{tuple(cert.args)} broke {cert.rule}")
+
+for warning in report.warnings:       # specifications that did not run
+    print(warning.condition, warning.reason)
+```
+
+`investigate_file` investigates a whole module while reusing one worker.
+
+### Repair
+
+`buggy repair` proposes fixes for a proven failure and then **tests** each one.
+
+```
+  VERIFIED  return 0.0 when budget == 0
+      guards the proven trigger (budget zero)
+      fixes the trigger, 37 working inputs unchanged, 2/2 similar inputs also fixed
+            BUG: `budget == 0` raises ZeroDivisionError.
+            """
+      +     if budget == 0:
+      +         return 0.0
+            return (spent / budget) * 100
+```
+
+Every candidate has to earn its verdict against four questions, which is
+affordable because a call costs ~0.015 ms:
+
+1. **Does it parse?** A patch that breaks the file is discarded.
+2. **Does it fix the proven trigger?** The exact input from the certificate is
+   re-run. The test is that the *proven* failure is gone, not that nothing is
+   raised, so converting a `ZeroDivisionError` into a documented `ValueError`
+   counts as a fix.
+3. **Does it break anything that worked?** Every input the original handled
+   correctly is re-run, and a changed result is a regression. "Handled
+   correctly" excludes inputs that returned a value violating a stated
+   postcondition, and inputs your preconditions exclude: a patch must not be
+   blamed for changing behaviour on a call you said would never happen.
+4. **Does it generalise?** Inputs sharing the trigger's shape (the same zero
+   denominator with different numerators, other empty collections) are
+   generated, screened to keep only those that fail the same way in the
+   original, and must be handled too.
+
+Question 4 is the honest overfitting check. A patch that special-cases the one
+input that caught it passes 1-3 and fails here, on evidence rather than on a
+coefficient. The verdicts are `verified`, `overfit` and `rejected`, each shown
+with the reason:
+
+```
+  REJECTED  always return 0.0
+      changes behaviour on [5, 2]: was ok:2.5, now ok:0.0 (37 of 38 inputs affected)
+
+  OVERFIT   special-case exactly the triggering input
+      only handles the exact input that caught it (0 of 4 similar inputs fixed)
+```
+
+The strategies are driven by the certificate, not by pattern-matching the
+source: an early-return guard, a `raise`, a clamp for a magnitude problem such
+as a discount above 100%, and a `None` substitution. For an instance method the
+guard reaches through `self`.
+
+**Nothing is ever written to your file.** Patches are returned as data.
+
+### Remembering what was found
+
+A certificate names an exact call that failed, which means it can be run again.
+So instead of keeping notes, `buggy` keeps the triggers and re-executes them:
+
+```bash
+buggy investigate budget_usage -f budget.py --record   # store the certificate
+buggy recheck                                          # re-run every trigger
+buggy export-tests -o tests/test_regressions.py        # emit them as pytest
+```
+
+`recheck` reports one of four outcomes per finding, each from an actual
+execution rather than from history:
+
+| outcome | meaning |
+|---|---|
+| `still_failing` | the defect is still there |
+| `fixed` | it was observed to pass |
+| `regressed` | it had been observed fixed and is failing again |
+| `unreachable` | the file or function is gone, so the trigger cannot be run |
+
+`regressed` is the outcome worth wiring into CI, and `recheck` exits non-zero
+when it finds one. It is **sticky**: a finding stays regressed until it actually
+passes again, because downgrading it on the next run would let a build go green
+while the defect is still there. `unreachable` is reported rather than counted
+as fixed, since a deleted function is not a repaired one.
+
+`export-tests` turns findings into ordinary pytest cases that assert the failure
+is *gone*, so the file passes once the defects are fixed:
+
+```python
+def test_budget_usage_crash_b0b907():
+    """must not raise ZeroDivisionError
+
+    Proven 2026-10-30. Trigger: budget_usage(0, 0)
+    """
+    try:
+        budget_usage(0, 0)
+    except ZeroDivisionError as exc:
+        pytest.fail(f"budget_usage still raises ZeroDivisionError: {exc}")
+```
+
+Asserting the fix rather than the bug is deliberate: a test asserting the defect
+still exists has to be deleted when it is fixed, which is how a regression suite
+rots.
+
+Recording is **opt-in** (`--record`), and the database lives at
+`.buggy/findings.db` in the project. A tool that inspects your code should not
+start writing files to it uninvited. Add `.buggy/` to your `.gitignore`, or
+commit it to share findings with the team.
+
+### As an MCP server
+
+`buggy-mcp` speaks MCP over stdio, so an agent can prove and repair defects
+while it works. Copy an entry from
+[`mcp-config.example.json`](mcp-config.example.json); for Kiro that goes in
+`.kiro/settings/mcp.json`.
+
+```json
+{
+  "mcpServers": {
+    "buggy": {
+      "command": "buggy-mcp",
+      "autoApprove": ["buggy_functions", "buggy_investigate", "buggy_scan"]
+    }
+  }
+}
+```
+
+Six tools: `buggy_functions`, `buggy_investigate`, `buggy_repair`,
+`buggy_scan`, `buggy_recall` and `buggy_recheck`, mirroring the commands
+above. `buggy_recall` is the one to reach for before editing a risky
+function: it reports defects already proven against it and whether any
+came back. Each returns both human-readable
+text and `structuredContent`, and a certificate always carries a `reproduce`
+field holding the exact call to paste into a REPL.
+
+`buggy_repair` is deliberately **not** in the `autoApprove` list above. It
+writes nothing, but a patch is a change to your code and deserves a human
+glance.
+
+Implemented against the standard library rather than the official MCP SDK. The
+SDK installs cleanly, but brings 27 transitive packages including a web server
+and a crypto library, which is disproportionate for a stdio pipe and would end
+this package's dependency-free install. Supported methods are `initialize`,
+`ping`, `tools/list`, `tools/call`, and empty `resources/list` and
+`prompts/list`; protocol versions `2024-11-05` through `2026-07-28` are
+negotiated, and an unrecognised one is answered with a supported version as the
+spec requires.
+
+## What "proven" means
+
+There is no solver and no symbolic reasoning. A certificate is a record of
+observed failure, and it is worth being precise about what that buys you:
+
+- the input was **executed**, not inferred
+- it satisfied every stated **precondition** (admissibility)
+- the failure was **observed again** in a fresh process (soundness)
+- it **recurred** in at least 2 of 3 further attempts (reproducibility)
+
+So a proven finding is a true positive you can reproduce by hand. The other
+statuses are kept distinct on purpose:
+
+| status | meaning |
+|---|---|
+| `proven` | a failing input survived all three pillars |
+| `unconfirmed` | the function ran and nothing failed. **Not** a proof of safety |
+| `no_valid_input` | the preconditions rejected every candidate, so the function never ran. Nothing was learned |
+| `skipped` | it could not be analysed or called at all; the reason is given |
+
+`no_valid_input` exists because collapsing it into `unconfirmed` would present
+an absence of evidence as evidence of absence. It was found by running this
+against the stdlib: `statistics.fmean` under a reasonable precondition executed
+zero inputs and still claimed nothing was wrong.
+
+## What is checked
+
+Five oracles, in this order. Your own postconditions are checked before the
+built-in numeric ones, so a broken rule is reported in your words.
+
+1. **timeout** - the call did not finish
+2. **crash** - it raised, and the exception is the function's fault
+3. **postcondition** - it returned a value you said was impossible
+4. **non-finite** - it returned NaN or an infinity *from finite arguments*
+5. **nondeterminism** - the same input gave different answers (`--determinism N`)
+
+Three rankings keep the signal usable, because the easiest failures to trigger
+are usually the least interesting:
+
+**Propagation is not a defect.** `monthly(nan) -> nan` is IEEE 754 working, not a
+bug. A non-finite result is only reported when the arguments were all finite, so
+`ratio(0, 0) -> nan` is a finding and `monthly(nan)` is not. Without this, every
+unguarded arithmetic function in a codebase gets flagged the moment the fuzzer
+tries NaN.
+
+**Type confusion is ranked last.** `divide(None, None)` raises `TypeError`, which
+is trivial to trigger and is the caller's mistake. Such a finding is remembered
+but the search continues, so `divide` is reported at `(x, 0)` with
+`ZeroDivisionError` rather than at `(None, None)`. If type confusion is the only
+failure found it is still reported, with advice to constrain the parameter types.
+
+**A deliberate raise is a contract, not a defect.** `parse('oops')` raising
+`SourceSyntaxError` is the documented behaviour, and on real code those findings
+outnumbered everything else. An exception is treated as intended when the
+function raises it explicitly, when an `@raises`/`:raises:` tag or a `Raises:`
+section declares it, or when it is an exception class the module itself defines
+(which covers propagating a module's own error from a helper).
+
+Only structured markup counts, never prose. An earlier version read a bare
+"raises X" from anywhere in the docstring and promptly suppressed a real defect
+documented as `"""BUG: denominator == 0 raises ZeroDivisionError."""`.
+Documenting a bug is the opposite of declaring a contract, and silently ignoring
+that finding would have been far worse than the noise the rule removes.
+
+## History
+
+This started as a TypeScript tool. That implementation is gone from the working
+tree but preserved intact at the `ts-final` tag:
+
+```bash
+git show ts-final --stat          # what it contained
+git checkout ts-final             # the whole thing
+git checkout ts-final -- src/     # one path out of it
+```
+
+It was removed rather than maintained alongside this, because a root
+`package.json` declaring `engines.node` is the first thing any reader finds, and
+it kept sending people to a Node install they do not need.
+
+The TypeScript tool did execute Python: it shipped a `PythonExecutor`, a
+`tree-sitter-python` grammar, Python-aware signature extraction, and a complete
+Python repair dialect. The problems were narrower and worse than "it has no
+Python support".
+
+**Specifications were evaluated as JavaScript, whatever the target language.**
+`spec-conditions.ts` compiled conditions with `new Function`, and all three call
+sites caught the failure and continued. So a Python condition raised a JavaScript
+`SyntaxError`, was swallowed, and the investigation reported "no bug found" -
+indistinguishable from genuine safety. Its own example runner, still in
+[`examples/checkout-service/run-buggy.mjs`](examples/checkout-service/run-buggy.mjs),
+documents the workaround in a comment: *"Both are JavaScript expressions even
+for Python targets."* Here, conditions are Python and an unevaluable one is a
+warning.
+
+**Execution cost made it unusable at size.** The original wrote four temp files
+and spawned a fresh interpreter per input. Measured on this machine:
+
+| approach | ms per execution |
+|---|---|
+| four temp files + fresh interpreter | 34.9 |
+| persistent worker (this package) | 0.015 |
+
+The committed example logs show the consequence: 494 seconds to investigate
+seven trivial functions, with single functions taking 173 seconds.
+
+**Three things are simpler in Python, not merely different.** `ast` replaces a
+native grammar that could be configured into the wrong language and silently
+fall back to parsing Python as TypeScript. `json` carries `NaN`, `Infinity`,
+`-0.0` and big integers between two Python processes losslessly, so the
+original's sentinel-encoding scheme is unnecessary in both directions. And the
+~250-line regex TypeScript stripper has nothing to strip.
+
+### Measured against the recorded run
+
+[`examples/expense-api/logs/investigations.jsonl`](examples/expense-api/logs/investigations.jsonl)
+records a real TypeScript run over the same seven functions. Same files,
+conditions translated to Python:
+
+| | TypeScript (recorded) | this package |
 |---|---|---|
-| `buggy-debugging` | always | the core workflow: which tool to call, how to read each status |
-| `buggy-cross-file-impact` | on a matching request | checking callers before changing a function |
-| `buggy-bug-trends` | on a matching request | reading `.buggy/findings.db`, and why regressions are the signal |
-| `buggy-onboarding` | on a matching request | warning about a file's defect history before it is edited |
-| `buggy-pr-review` | manually | proof-backed review of a branch or diff |
-| `buggy-git-diff-specs` | manually | inferring a specification from a commit message |
-| `buggy-type-narrowing` | manually | preventing a proven defect by construction, not just guarding it |
-| `buggy-spec-from-tests` | on opening a pytest file | turning assertions into pre/postconditions |
+| defects proven | 3 of 7 | **4 of 7** |
+| wall clock | 494 s | **0.4 s** |
 
-Specifications in all of them are **Python** expressions, matching the
-`buggy-py` evaluator. See the [Usage Guide](docs/USAGE-GUIDE.md) for
-customization options.
+The extra defect is `apply_discount`, where a discount above 100% returns a
+negative price. It is real and documented in the example's own `WORKFLOW.md`;
+the recorded run missed it for want of an input above 100. `tests/test_prove.py`
+keeps those statuses as a regression baseline.
 
----
+## What exists today
 
-## Installation
+Wired into the live pipeline and tested:
 
-> **Note on the name:** this package is published as **`buggy-debugger`**. The
-> bare name `buggy` on npm is an unrelated issue tracker, and `buggy-mcp` is
-> also taken by an unrelated project — so install `buggy-debugger`. The binaries
-> it installs are still called `buggy` and `buggy-mcp`.
+- `ast`-based function discovery and signature recovery, including qualified
+  names for class members, positional-only and keyword-only parameters,
+  variadics excluded from arity, and `self`/`cls` correctly not counted
+- instance methods, with a receiver constructed from `__init__`, rebuilt per
+  call, overridable with `--receiver`, and recorded in the certificate;
+  constructor arguments are searched and can be constrained by preconditions
+- the Python specification language, with a restricted evaluator and the
+  three-way verdict (holds / broken / cannot be evaluated)
+- the persistent worker: reused process, protocol isolated from the target's
+  stdout, timeout with kill-and-respawn, `RLIMIT_CPU` and `RLIMIT_FSIZE`
+- annotation-driven input generation with Python's hazards, and the one-hot /
+  all-edge / random schedule for wide signatures
+- the five oracles, with propagation and type-confusion ranking
+- three-pillar verification and certificates
+- repair: certificate-driven patch strategies, each verified by execution
+  against the four questions above, with regression and overfitting detection
+  grounded in observed behaviour rather than a score
+- the `functions`, `investigate`, `repair`, `scan`, `findings`, `recheck` and
+  `export-tests` commands, with `--json`
+- the MCP server: six tools over stdio, stdlib-only, with stdout isolated from
+  the protocol so a print in your code cannot break a session
 
-```bash
-# Global — gives you the `buggy` (CLI) and `buggy-mcp` (MCP server) commands
-npm install -g buggy-debugger
-buggy --help
+Not written yet, and not implied anywhere in the output:
 
-# Or as a project dependency
-npm install buggy-debugger
-```
+- **a cross-project memory.** The TypeScript implementation promoted lessons to
+  a sanitised index in your home directory, shared across every project. Left
+  out: it writes outside the project for a weak signal, and a trigger from
+  another codebase cannot be re-run here, so none of its claims could be
+  checked.
+- **generating hooks or steering files from defect history.** That is config
+  synthesised from thin evidence. `buggy export-tests` serves the same wish
+  with something specific and checkable.
+- **resources and prompts** over MCP. `resources/list` and `prompts/list`
+  answer with empty lists so clients that probe them do not error, but nothing
+  is exposed that way.
+- **async functions** - refused with a reason; the worker has no event loop.
+- **special methods** - `__init__`, `__add__` and the rest are refused; their
+  calling conventions vary too much to guess at.
+- **defects that need several calls on one object** - a receiver is rebuilt for
+  every call, which is what makes reproducibility sound, but it means a leak or
+  a corruption that only appears on the third call is invisible.
+- **a hard memory cap** - requested and *reported*, not assumed. `RLIMIT_AS`
+  cannot be lowered on macOS (`setrlimit` raises), so `Executor.limits` tells
+  you what the OS actually accepted rather than claiming a limit that is not
+  there. `RLIMIT_CPU` does work, and is what stops a runaway loop.
 
-Installing straight from the repository also works, and builds itself via the
-`prepare` script:
+Isolation today is a separate process with a CPU cap, a file-size cap, and
+kill-on-timeout. There is no filesystem, network or syscall restriction. Do not
+point this at code you would not run.
 
-```bash
-npm install -g github:himanshusaini-afk/buggy
-```
+**Side effects happen.** Your functions are really executed, and for an instance
+method so is the constructor, with generated arguments. Running buggy over its
+own source left a stray SQLite file behind, because a generated argument reached
+a constructor that opens a database. Nothing is faked or mocked, which is what
+makes a finding reproducible and also what makes this a real consideration. Run
+it on a clean working tree, and prefer `--receiver` to pin the construction when
+a class touches the outside world.
 
-Or clone and build from source:
+The target's stdin and stdout are both pointed at `/dev/null`, so a `print`
+goes nowhere and an `input()` gets `EOFError` immediately rather than waiting.
+That keeps the protocol safe and stops an interactive function from looking
+like a hang, but it is not a sandbox: a function that spawns an editor or opens
+a URL will still do it.
 
-```bash
-git clone https://github.com/himanshusaini-afk/buggy.git
-cd buggy
-npm install      # installs deps and builds dist/ (prepare script)
-npm link         # optional: expose `buggy` / `buggy-mcp` globally
-```
-
-### Requirements
-
-- Node.js >= 18.0.0
-- Tree-sitter grammars for TypeScript/JavaScript and Python are **bundled** — no separate grammar install needed
-- An LSP server for symbol resolution (optional but recommended)
-- For Python bug proving: a `python` interpreter on `PATH` (functions are executed in a real Python process). Note that specifications are still written in JavaScript — see [Working on a Python project?](#working-on-a-python-project)
-
-The Python package in [`buggy-py/`](buggy-py/) needs none of the above: Python
-3.10+ and no dependencies at all. See
-[Installing the Python package](#installing-the-python-package) for the two
-commands.
-
-## Integration Guide
-
-### 1. Run the setup wizard
-
-Run `buggy init` in your project root. It detects your language, asks a few
-questions, and creates:
-
-- `.debugger.yaml` — configuration tailored to your answers
-- `.debugger/` — working directory for the graph database (added to `.gitignore` for you)
-
-That's the whole setup. The generated config picks the right grammar, LSP command,
-and sandbox runtime for the language you chose, for example:
-
-```yaml
-language: python
-parser:
-  command: tree-sitter-python
-lsp:
-  command: pylsp
-sandbox:
-  runtime: python
-  memory_limit_mb: 512
-  timeout_seconds: 60
-```
-
-### 2. Adjust later if you want
-
-Everything remains a plain YAML file you can tune (see the Configuration Reference
-below), or just re-run `buggy init --force` to regenerate it.
-
-## Programmatic API
-
-```typescript
-import { ProofDebugger } from 'buggy-debugger';
-
-const debugger_ = new ProofDebugger({
-  projectRoot: '/path/to/your/project',
-  language: 'typescript', // optional override
-  sandbox: { memory_limit_mb: 1024 }, // optional override
-});
-
-await debugger_.initialize();
-
-// What do we already know about this code? (what the buggy-recall-first hook uses)
-const prior = debugger_.recall({
-  functionId: 'processPayment',
-  filePath: 'src/payments.ts',
-});
-console.log(prior.seen_before); // has this exact target burned us before?
-console.log(prior.lessons);     // ranked lessons — what worked, what was rejected
-
-// How much experience has accumulated?
-console.log(debugger_.watchlistStats()); // episodes, distinct lessons, global coverage
-
-// Investigate a specific function
-const report = await debugger_.investigate({
-  functionId: 'processPayment',
-  filePath: 'src/payments.ts',
-  specification: {
-    // Conditions are JavaScript expressions — including when the target is
-    // Python. They are compiled with `new Function`, and a condition that
-    // fails to compile or throws is SKIPPED SILENTLY, so a Python-syntax
-    // condition has no effect and the investigation still reports
-    // "unconfirmed". Parameter names are in scope, plus `result` in a
-    // postcondition. For Python conditions, see `buggy-py/`.
-    preconditions: ['amount > 0'],
-    postconditions: ['result.status === "success" || result.status === "failed"'],
-    parameters: [{ name: 'amount', type: 'number' }],
-    return_type: 'PaymentResult',
-  },
-});
-
-// Access results
-console.log(report.status);
-// → 'confirmed_and_repaired' | 'confirmed_no_repair' | 'unconfirmed' | 'halted'
-
-console.log(report.proof);           // The proof-of-failure certificate
-console.log(report.approved_patches); // Patches that passed overfitting check
-
-// Run a single parse
-const parseResult = await debugger_.parse('src/payments.ts');
-console.log(parseResult.cst);    // Full concrete syntax tree
-console.log(parseResult.errors); // Syntax errors with locations
-
-// Query the semantic graph
-const { callees, edges } = await debugger_.queryCallees('processPayment');
-
-// Query a specific node
-const node = debugger_.queryNode('node_42');
-
-// Get file subgraph
-const { nodes, edges: fileEdges } = debugger_.queryFileGraph('src/payments.ts');
-
-// Did past fixes actually hold?
-const retro = debugger_.retrospect();
-console.log(retro.improvement_score);  // share of fixed lessons that held, or null
-console.log(retro.regressions);        // defects proven again AFTER being repaired
-console.log(retro.dead_ends);          // approaches that keep getting rejected
-
-// What guardrails is this project missing?
-const advice = debugger_.suggestCapabilities();
-for (const s of advice.suggestions) {
-  console.log(s.priority, s.kind, s.title, '→', s.target_path);
-  console.log(s.rationale);            // grounded in observed episodes
-}
-debugger_.applyCapability('steering-dead-ends');  // writes the file; never clobbers
-
-// Check investigation status
-const status = debugger_.getStatus(report.id);
-
-// Halt a running investigation
-debugger_.halt(report.id);
-
-// Shutdown (closes DB, LSP connections)
-await debugger_.shutdown();
-```
-
-### ProofDebugger Options
-
-```typescript
-interface ProofDebuggerOptions {
-  projectRoot: string;        // Required: path to your project
-  language?: string;          // Override auto-detected language
-  configPath?: string;        // Custom .debugger.yaml path
-  dbPath?: string;            // Custom database path
-  sandbox?: {
-    memory_limit_mb?: number;
-    timeout_seconds?: number;
-    egress_policy?: 'deny' | 'allow_host_only';
-  };
-  probe?: {
-    search_budget?: number;
-    max_refinement_iterations?: number;
-  };
-}
-```
-
-## CLI Reference
-
-### `buggy init`
-
-Sets up Buggy for the current project. Detects the primary language from your
-source files, then asks a few questions (language, search effort, per-function
-timeout, memory scope, gitignore) — each with a default, so pressing Enter through
-them is fine. Writes a tailored `.debugger.yaml` plus the `.debugger/` directory.
+## Tests
 
 ```bash
-buggy init                          # interactive
-buggy init --yes                    # accept detected defaults, no prompts
-buggy init --language python --yes  # force the language (typescript|javascript|python)
-buggy init --force                  # regenerate over an existing config
-buggy init --json                   # machine-readable; never prompts
+python3 -m unittest discover -s tests -t .    # no installs needed
+# or
+pytest
 ```
 
-Prompts are skipped automatically when stdin is not a terminal, so this is safe in
-CI.
-
-### `buggy analyze <file>`
-
-Parses a file using Tree-sitter and displays the semantic graph summary.
-
-```bash
-buggy analyze src/payments.ts
-buggy analyze src/payments.ts --verbose   # Show CST depth-2 summary
-buggy analyze src/payments.ts --json      # Full JSON output
-```
-
-### `buggy investigate <function> --file <path>`
-
-Runs the full investigation pipeline (Parse → Prove → Repair → Classify) on a function.
-
-```bash
-buggy investigate processPayment --file src/payments.ts
-buggy investigate processPayment -f src/payments.ts --verbose
-buggy investigate processPayment -f src/payments.ts --json
-```
-
-### `buggy status <id>`
-
-Shows the current status of a running or completed investigation.
-
-```bash
-buggy status inv_1234567890_abc1234
-buggy status inv_1234567890_abc1234 --json
-```
-
-### `buggy halt <id>`
-
-Halts a running investigation, preserving intermediate results.
-
-```bash
-buggy halt inv_1234567890_abc1234
-```
-
-### `buggy retrospect`
-
-Reports whether the experience memory is actually working. Reads each lesson's
-episodes as a timeline and tells you which fixes **held**, which **regressed**
-(the defect was proven again after being repaired), which defects never got an
-accepted fix, which approaches are repeated dead ends, and which files are
-hotspots.
-
-```bash
-buggy retrospect
-buggy retrospect --verbose   # also list every dead end
-buggy retrospect --json
-```
-
-A regression is the highest-value signal here: the memory existed, the agent had
-access to it, and the defect still came back. That usually means the patch
-addressed the triggering input rather than the cause.
-
-### `buggy suggest`
-
-Proposes new hooks, steering rules and skills derived from this project's own
-defect history. Each proposal carries the evidence that motivated it and the
-finished file content, so accepting one is a write rather than a design exercise.
-
-```bash
-buggy suggest                                  # list proposals
-buggy suggest --verbose                         # include the full file each would write
-buggy suggest --apply steering-dead-ends        # write one
-buggy suggest --apply steering-dead-ends --force  # overwrite an existing file
-```
-
-Nothing is written without `--apply`, and an existing file is never overwritten
-without `--force` — these artefacts are meant to be hand-edited afterwards.
-
-### Global Options
-
-| Flag | Description |
-|------|-------------|
-| `--json` | Output results as JSON (machine-readable) |
-| `--verbose` | Enable detailed logging and extended output |
-| `--help`, `-h` | Show help message |
-
-## Configuration Reference
-
-The `.debugger.yaml` file controls all aspects of the debugger. Here's the full schema:
-
-```yaml
-# Required — selects the Tree-sitter grammar AND the execution runtime
-language: typescript    # typescript | javascript | python
-
-# Parser configuration
-parser:
-  command: tree-sitter-typescript  # Tree-sitter grammar to use
-  grammar_path: ./custom.wasm     # Optional: path to custom grammar
-
-# Language Server Protocol
-lsp:
-  command: typescript-language-server
-  initialization_options:          # Optional: passed to LSP on init
-    preferences:
-      includeInlayParameterNameHints: "all"
-
-# Sandbox execution environment
-sandbox:
-  runtime: node                    # Execution runtime (node, python, deno, bun)
-  memory_limit_mb: 512             # 64-8192 MB
-  timeout_seconds: 60              # 1-300 seconds
-  egress_policy: deny              # deny | allow_host_only
-
-# Oracle violation detectors
-oracles:
-  timeout_threshold_seconds: 10    # 1-300 seconds
-  crash_detection: true
-  overflow_detection: true
-  determinism_check_count: 5       # 1-100 runs
-
-# PROBE loop configuration
-probe:
-  search_budget: 100               # Max property candidates
-  max_refinement_iterations: 10    # Max iterations per property
-
-# Experience memory — see "Learning Across Runs"
-watchlist:
-  enabled: true                    # Set false to record nothing
-  scope: layered                   # local | team | global | layered
-
-# Optional: custom plug-ins (parsed and validated, but not yet loaded)
-plugs:
-  parsing: ./plugs/parser
-  oracles:
-    - ./plugs/memory-oracle
-  repair: ./plugs/repair-strategy
-  sandbox_executor: ./plugs/sandbox
-```
-
-### Defaults
-
-Only these have schema defaults. Everything else above is required — and `buggy
-init` writes all of it for you, so hand-editing is optional.
-
-| Field | Default |
-|-------|---------|
-| `lsp.initialization_options` | `{}` |
-| `sandbox.egress_policy` | `deny` |
-| `plugs` | `undefined` (no custom plugs) |
-| `watchlist.enabled` | `true` |
-| `watchlist.scope` | `layered` |
-
-`sandbox.memory_limit_mb` is validated and recorded but **not enforced** —
-OS-level memory capping needs the Firecracker executor, which is not wired.
-
-## Architecture Overview
-
-The system consists of five specialized agents coordinated by an orchestrator:
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                     Agent Orchestrator                        │
-│  (Coordinates sequential pipeline + sandbox concurrency)     │
-└─────────┬──────────┬──────────────┬──────────────┬───────────┘
-          │          │              │              │
-    ┌─────▼─────┐ ┌─▼──────────┐ ┌▼──────────┐ ┌─▼───────────┐
-    │  Parser   │ │ Bug-Proving │ │  Repair   │ │ Classifier  │
-    │  Agent    │ │   Agent     │ │  Agent    │ │   Agent     │
-    └───────────┘ └─────────────┘ └───────────┘ └─────────────┘
-          │              │              │              │
-          └──────────────┴──────────────┴──────────────┘
-                              │
-                    ┌─────────▼─────────┐
-                    │   Sandbox Agent   │
-                    │  (up to 4 conc.)  │
-                    └───────────────────┘
-```
-
-**Pipeline flow:**
-1. **Parser Agent** — Tree-sitter CST parsing, symbol resolution via LSP
-2. **Bug-Proving Agent** — Edge-case-first execution fuzzing + five oracles → proof-of-failure certificate certified on admissibility, soundness and reproducibility
-3. **Repair Agent** — Trigger-derived patch generation with TypeScript and Python dialects
-4. **Classifier Agent** — PRISM-APCC overfitting detection using 66-dimensional AST difference vectors
-5. **Sandbox Agent** — Firecracker-backed isolated execution, available on-demand. **Wired as a stub today** — the live execution boundary is an OS child process
-
-Phase 2 is a gate: with no certificate the run ends as `unconfirmed`, and no
-repair is attempted. For what each phase does and does not include, see
-[Features → What runs today](docs/FEATURES.md#what-runs-today).
-
-**Data layer:**
-- SQLite graph database (WAL mode) stores CST nodes, edges, symbol resolutions, proofs, and patches
-- All inter-agent data flows through typed MCP tool calls
-
-## Learning Across Runs
-
-Buggy keeps a record of its own history and acts on it.
-
-**The Watchlist** records one episode per investigation: the triggering input,
-every patch that was rejected and *how* it failed, and the one that worked.
-Verified episodes become lessons, promoted through three tiers — private to you,
-committed for the repo, and (once corroborated across two projects, sanitized of
-all code and values) reused across everything you work on. `buggy_recall` and the
-`buggy-recall-first` hook feed those lessons back before code gets edited.
-
-**The Retrospective** (`buggy retrospect`) asks whether any of that helped. It
-reads each lesson as a timeline and separates fixes that held from fixes that
-**regressed** — proven again after being repaired. It also collapses repeated
-rejection reasons into named dead ends, so the same rejected approach is not
-retried indefinitely.
-
-**The Advisor** (`buggy suggest`) closes the loop. When a defect class keeps
-recurring, the useful response is usually not another patch but a new guardrail,
-so the advisor proposes hooks, steering rules and skills derived from the
-project's own evidence — a regression guard scoped to the files where fixes did
-not stick, a dead-ends steering file, a language-specific defect guide rendered
-in the right syntax, a triage skill for defects where every patch was rejected,
-and a skill for converting proof certificates into regression tests. Every
-proposal names the episodes that motivated it. Nothing is written until you
-accept it.
-
-## Extending with Custom Plugs
-
-The plug system lets you override default agent behavior without modifying core code.
-
-### Creating a Parser Plug
-
-```typescript
-import type { ParsingPlug } from 'buggy-debugger';
-
-export const myParser: ParsingPlug = {
-  name: 'my-custom-parser',
-  parse(source: string, filePath: string) {
-    // Your custom parsing logic
-    return { cst, errors, duration_ms, file_path: filePath };
-  },
-};
-```
-
-### Creating an Oracle Plug
-
-```typescript
-import type { OraclePlug } from 'buggy-debugger';
-
-export const memoryOracle: OraclePlug = {
-  name: 'memory-leak-detector',
-  detect(executionResult) {
-    // Analyze execution for memory leaks
-    return violations;
-  },
-};
-```
-
-### Creating a Repair Plug
-
-```typescript
-import type { RepairPlug } from 'buggy-debugger';
-
-export const mlRepair: RepairPlug = {
-  name: 'ml-based-repair',
-  generatePatches(proof, target) {
-    // ML-based patch generation
-    return patches;
-  },
-};
-```
-
-### Registering Plugs
-
-Add plug paths to `.debugger.yaml`:
-
-```yaml
-plugs:
-  parsing: ./plugs/my-custom-parser
-  oracles:
-    - ./plugs/memory-leak-detector
-  repair: ./plugs/ml-based-repair
-```
-
-> **Not yet wired.** The plug types are exported and the registry is implemented
-> and tested, but nothing in the live pipeline loads it — the `plugs:` key is
-> parsed and validated, then ignored. The interfaces are stable enough to write
-> against; they just are not called yet.
-
-## Development
-
-```bash
-# Build
-npm run build
-
-# Run tests
-npm test
-
-# Run specific test suites
-npm run test:unit
-npm run test:properties
-npm run test:integration
-
-# Run the CLI locally
-node dist/cli.js --help
-
-# Smoke test the published artefact (packs, installs into a clean
-# project, exercises every entry point). Runs automatically on publish.
-npm run smoke
-```
-
-### The smoke test
-
-`npm run smoke` is the gate that the unit suite cannot be. The suite runs against
-`src/` with this repo's own `.npmrc` and `tsconfig`, so it passes happily while
-the *published* artefact is broken. The smoke test packs the tarball exactly as
-`npm publish` would, installs it into a throwaway project with **default** npm
-settings, and checks 15 things from the consumer's side:
-
-- the tarball builds, and leaks no `.env` / `.npmrc` / `.kiro` / credentials
-- it installs with strict peer resolution (the repo's `legacy-peer-deps` is not published)
-- both `buggy` and `buggy-mcp` bin shims link
-- every CLI command appears in `--help`; `init`, `analyze` and `investigate` work
-- `--json` stdout is parseable — a regression guard, since config diagnostics once went to stdout and corrupted it
-- `retrospect` and `suggest` read back the history the investigation just recorded
-- the MCP server answers `initialize` + `tools/list` over stdio with all 10 tools
-- `import { ProofDebugger } from 'buggy-debugger'` works end to end
-- `dist/index.d.ts` ships
-
-It is wired to `prepublishOnly`, so `npm publish` cannot proceed unless it is
-green. Use `--keep` to leave the temp project behind for inspection.
-
-### Shipping a change
-
-Every change ships as a complete unit: code, README, and the public site in
-`site/`. The full checklist lives in
-[`.kiro/steering/release-checklist.md`](.kiro/steering/release-checklist.md)
-and is loaded automatically when working in Kiro.
-
-The short version:
-
-1. Update this README if the change is user-visible — CLI, API, MCP tools, config, or the "what runs today" split.
-2. Update `site/` to match. It has no build step; the stat counters and the MCP tool list go stale silently.
-3. `npm run build && npx vitest run`, then commit specific files and push to the current branch.
-4. Confirm the [Pages deploy](https://github.com/himanshusaini-afk/buggy/actions) went green. Only pushes touching `site/**` trigger it.
+233 tests, all passing, about 39 seconds. `tests/test_realcode.py` holds the
+regressions that only a run over real code could find, and is worth reading
+before trusting the fixture suite. `tests/test_prove.py` includes the
+parity baseline against the recorded TypeScript run and is skipped if the
+example sources are absent. `tests/test_repair.py` injects a deliberately
+sabotaged patch and a deliberately overfit one, to check that the evidence
+actually rejects them.
 
 ## License
 

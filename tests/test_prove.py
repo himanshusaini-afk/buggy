@@ -10,7 +10,7 @@ from buggy.prove import Config, investigate
 from buggy.models import OracleKind, ReceiverKind
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample.py"
-EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "expense-api" / "src"
+EXAMPLES = Path(__file__).resolve().parents[1] / "examples" / "expense-api" / "src"
 
 FAST = Config(max_executions=400, timeout=1.0)
 
